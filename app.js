@@ -565,33 +565,200 @@ function renderMap(){
 }
 
 function renderAccounts(){
-  setTitle(isCourier()?"حسابي":"الحسابات");
-  const done=deliveredOrders();
-  const courierPct=Number(state.settings.courier_percent)||75;
-  const companyPct=Number(state.settings.company_percent)||25;
+  setTitle(isCourier() ? "حسابي" : "الحسابات");
+
+  const courierPct = Number(state.settings.courier_percent) || 70;
+  const companyPct = Number(state.settings.company_percent) || 30;
+
+  // فقط الطلبات المسلّمة التي لم تتم تسويتها
+  const unsettled = state.orders.filter(o =>
+    o.status === "delivered" && !o.settlement_id
+  );
 
   if(isCourier()){
-    const total=done.reduce((s,o)=>s+Number(o.fee||0),0);
-    $("#content").innerHTML=`<div class="grid stats-grid">
-      <div class="card stat"><div class="label">طلبات مسلّمة</div><div class="value">${done.length}</div></div>
-      <div class="card stat"><div class="label">إجمالي أجور التوصيل</div><div class="value">${money(total)}</div></div>
-      <div class="card stat"><div class="label">نسبتي</div><div class="value">${courierPct}%</div></div>
-      <div class="card stat"><div class="label">مستحقاتي</div><div class="value">${money(total*courierPct/100)}</div></div>
-    </div>`;
+    const myOrders = unsettled.filter(o =>
+      String(o.courier_id || "") === String(state.profile?.courier_id || "")
+    );
+
+    const total = myOrders.reduce((s,o) => s + Number(o.fee || 0), 0);
+
+    $("#content").innerHTML = `
+      <div class="grid stats-grid">
+        <div class="card stat">
+          <div class="label">طلبات غير مسوّاة</div>
+          <div class="value">${myOrders.length}</div>
+        </div>
+
+        <div class="card stat">
+          <div class="label">إجمالي أجور التوصيل</div>
+          <div class="value">${money(total)}</div>
+        </div>
+
+        <div class="card stat">
+          <div class="label">نسبتي</div>
+          <div class="value">${courierPct}%</div>
+        </div>
+
+        <div class="card stat">
+          <div class="label">مستحقاتي</div>
+          <div class="value">${money(total * courierPct / 100)}</div>
+        </div>
+      </div>
+    `;
     return;
   }
-  if(!isAdmin()){state.page="dashboard";return renderDashboard();}
 
-  const rows=state.couriers.map(c=>{
-    const os=done.filter(o=>String(o.courier_id||"")===String(c.id) || (!o.courier_id && o.courier===c.name));
-    const total=os.reduce((s,o)=>s+Number(o.fee||0),0);
-    return {name:c.name,count:os.length,total,courier:total*courierPct/100,company:total*companyPct/100};
+  if(!isAdmin()){
+    state.page = "dashboard";
+    return renderDashboard();
+  }
+
+  const rows = state.couriers.map(c => {
+    const os = unsettled.filter(o =>
+      String(o.courier_id || "") === String(c.id) ||
+      (!o.courier_id && o.courier === c.name)
+    );
+
+    const total = os.reduce((s,o) => s + Number(o.fee || 0), 0);
+
+    return {
+      id: c.id,
+      name: c.name,
+      count: os.length,
+      total,
+      courier: total * courierPct / 100,
+      company: total * companyPct / 100
+    };
   });
-  $("#content").innerHTML=`<div class="card">
-    <div class="card-header"><h2>💰 حسابات المندوبين</h2><span class="badge badge-new">المندوب ${courierPct}% — وصلّي ${companyPct}%</span></div>
-    <div class="table-wrap"><table><thead><tr><th>المندوب</th><th>المسلّمة</th><th>إجمالي الأجور</th><th>مستحق المندوب</th><th>حصة وصلّي</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td><strong>${esc(r.name)}</strong></td><td>${r.count}</td><td>${money(r.total)}</td><td>${money(r.courier)}</td><td>${money(r.company)}</td></tr>`).join("")}</tbody></table></div>
-  </div>`;
+
+  $("#content").innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>حسابات المندوبين</h2>
+        <span class="badge badge-new">
+          المندوب ${courierPct}% — وصلّي ${companyPct}%
+        </span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>المندوب</th>
+              <th>غير المسوّاة</th>
+              <th>إجمالي الأجور</th>
+              <th>مستحق المندوب</th>
+              <th>حصة وصلّي</th>
+              <th>التسوية</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td><strong>${esc(r.name)}</strong></td>
+                <td>${r.count}</td>
+                <td>${money(r.total)}</td>
+                <td>${money(r.courier)}</td>
+                <td>${money(r.company)}</td>
+                <td>
+                  ${
+                    r.count > 0
+                    ? `<button class="btn btn-primary"
+                         data-settle-courier="${esc(r.id)}">
+                         تمت التسوية
+                       </button>`
+                    : `<span class="badge badge-done">لا توجد مستحقات</span>`
+                  }
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  $$("[data-settle-courier]").forEach(btn => {
+    btn.onclick = () => settleCourier(btn.dataset.settleCourier);
+  });
+}
+
+async function settleCourier(courierId){
+  if(!isAdmin()) return;
+
+  const courier = state.couriers.find(c =>
+    String(c.id) === String(courierId)
+  );
+
+  if(!courier){
+    toast("لم يتم العثور على المندوب","error");
+    return;
+  }
+
+  const orders = state.orders.filter(o =>
+    o.status === "delivered" &&
+    !o.settlement_id &&
+    (
+      String(o.courier_id || "") === String(courier.id) ||
+      (!o.courier_id && o.courier === courier.name)
+    )
+  );
+
+  if(!orders.length){
+    toast("لا توجد طلبات تحتاج إلى تسوية","warn");
+    return;
+  }
+
+  const courierPct = Number(state.settings.courier_percent) || 70;
+  const companyPct = Number(state.settings.company_percent) || 30;
+
+  const total = orders.reduce((s,o) => s + Number(o.fee || 0), 0);
+  const courierShare = total * courierPct / 100;
+  const companyShare = total * companyPct / 100;
+
+  if(!confirm(
+    `تأكيد التسوية ${courier.name}؟\n` +
+    `عدد الطلبات: ${orders.length}\n` +
+    `إجمالي الأجور: ${money(total)}\n` +
+    `مستحق المندوب: ${money(courierShare)}\n` +
+    `حصة وصلّي: ${money(companyShare)}`
+  )) return;
+
+  const {data:settlement,error:settlementError} = await sb
+    .from("courier_settlements")
+    .insert({
+      courier_id: String(courier.id),
+      courier_name: courier.name,
+      orders_count: orders.length,
+      total_fees: total,
+      courier_share: courierShare,
+      wasalli_share: companyShare,
+      settled_by: state.session.user.id
+    })
+    .select("id")
+    .single();
+
+  if(settlementError){
+    toast(settlementError.message,"error");
+    return;
+  }
+
+  const orderIds = orders.map(o => o.id);
+
+  const {error:updateError} = await sb
+    .from("orders")
+    .update({settlement_id:settlement.id})
+    .in("id",orderIds);
+
+  if(updateError){
+    toast(updateError.message,"error");
+    return;
+  }
+
+  await loadOrders();
+  renderAccounts();
+  toast("تمت تسوية حساب المندوب بنجاح");
 }
 
 function renderReports(){
