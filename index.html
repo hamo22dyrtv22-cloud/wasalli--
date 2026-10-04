@@ -4,103 +4,304 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#6b2fb8">
+
   <title>وصلّي | نظام إدارة التوصيل</title>
+
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
+
+  <!-- Leaflet Map -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  >
+
+  <!-- Wasalli Styles -->
   <link rel="stylesheet" href="app.css">
 </head>
+
 <body>
+
+  <!-- التنبيهات -->
   <div id="toast" class="toast" aria-live="polite"></div>
 
+
+  <!-- =========================================================
+       تسجيل الدخول وإنشاء الحساب
+       ========================================================= -->
   <section id="authView" class="auth-shell">
+
     <div class="auth-card">
+
       <div class="brand brand-auth">
         <div class="brand-logo">و</div>
+
         <div>
           <div class="brand-name">وصلّي</div>
           <small>لخدمات التوصيل</small>
         </div>
       </div>
+
 
       <div class="auth-tabs">
-        <button class="auth-tab active" data-auth-tab="login">تسجيل الدخول</button>
-        <button class="auth-tab" data-auth-tab="signup">إنشاء حساب</button>
+        <button
+          class="auth-tab active"
+          data-auth-tab="login"
+          type="button"
+        >
+          تسجيل الدخول
+        </button>
+
+        <button
+          class="auth-tab"
+          data-auth-tab="signup"
+          type="button"
+        >
+          إنشاء حساب
+        </button>
       </div>
 
+
+      <!-- تسجيل الدخول -->
       <form id="loginForm" class="auth-form">
-        <label>البريد الإلكتروني</label>
-        <input id="loginEmail" type="email" autocomplete="email" required placeholder="name@example.com">
-        <label>كلمة المرور</label>
-        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••">
-        <button class="btn btn-primary btn-block" type="submit">دخول</button>
+
+        <label for="loginEmail">البريد الإلكتروني</label>
+
+        <input
+          id="loginEmail"
+          type="email"
+          autocomplete="email"
+          required
+          placeholder="name@example.com"
+        >
+
+        <label for="loginPassword">كلمة المرور</label>
+
+        <input
+          id="loginPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+          placeholder="••••••••"
+        >
+
+        <button
+          class="btn btn-primary btn-block"
+          type="submit"
+        >
+          دخول
+        </button>
+
       </form>
 
+
+      <!-- إنشاء الحساب -->
       <form id="signupForm" class="auth-form hidden">
-        <label>الاسم الكامل</label>
-        <input id="signupName" required placeholder="الاسم الكامل">
-        <label>البريد الإلكتروني</label>
-        <input id="signupEmail" type="email" autocomplete="email" required placeholder="name@example.com">
-        <label>كلمة المرور</label>
-        <input id="signupPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="8 أحرف أو أكثر">
-        <button class="btn btn-secondary btn-block" type="submit">إنشاء الحساب</button>
-        <p class="muted center">الحساب الجديد يكون قيد المراجعة إلى أن يفعّله مدير وصلّي ويربطه بمحل أو مندوب.</p>
+
+        <label for="signupName">الاسم الكامل</label>
+
+        <input
+          id="signupName"
+          required
+          placeholder="الاسم الكامل"
+        >
+
+        <label for="signupEmail">البريد الإلكتروني</label>
+
+        <input
+          id="signupEmail"
+          type="email"
+          autocomplete="email"
+          required
+          placeholder="name@example.com"
+        >
+
+        <label for="signupPassword">كلمة المرور</label>
+
+        <input
+          id="signupPassword"
+          type="password"
+          autocomplete="new-password"
+          minlength="8"
+          required
+          placeholder="8 أحرف أو أكثر"
+        >
+
+        <button
+          class="btn btn-secondary btn-block"
+          type="submit"
+        >
+          إنشاء الحساب
+        </button>
+
+        <p class="muted center">
+          الحساب الجديد يكون قيد المراجعة إلى أن يفعّله مدير وصلّي
+          ويربطه بمحل أو مندوب.
+        </p>
+
       </form>
+
 
       <p id="authMessage" class="form-message"></p>
+
     </div>
+
   </section>
 
+
+  <!-- =========================================================
+       الحساب قيد المراجعة
+       ========================================================= -->
   <section id="pendingView" class="auth-shell hidden">
+
     <div class="auth-card center">
+
       <div class="brand-logo big">و</div>
+
       <h2>الحساب قيد المراجعة</h2>
-      <p class="muted">تم تسجيل الدخول، لكن الحساب لم يُفعّل بعد من إدارة وصلّي.</p>
-      <button id="pendingLogout" class="btn btn-danger">تسجيل الخروج</button>
+
+      <p class="muted">
+        تم تسجيل الدخول، لكن الحساب لم يُفعّل بعد من إدارة وصلّي.
+      </p>
+
+      <button
+        id="pendingLogout"
+        class="btn btn-danger"
+        type="button"
+      >
+        تسجيل الخروج
+      </button>
+
     </div>
+
   </section>
 
+
+  <!-- =========================================================
+       التطبيق الرئيسي
+       ========================================================= -->
   <div id="appView" class="app hidden">
+
+
+    <!-- القائمة الجانبية -->
     <aside class="sidebar" id="sidebar">
+
       <div class="brand">
+
         <div class="brand-logo">و</div>
+
         <div>
           <div class="brand-name">وصلّي</div>
           <small>لخدمات التوصيل</small>
         </div>
+
       </div>
 
+
+      <!-- القائمة تُنشأ من app.js -->
       <nav id="navMenu" class="nav"></nav>
 
+
       <div class="sidebar-foot">
+
         <div class="user-mini">
-          <div id="userAvatar" class="avatar">م</div>
-          <div>
-            <strong id="userName">المستخدم</strong>
-            <small id="userRole">—</small>
+
+          <div id="userAvatar" class="avatar">
+            م
           </div>
+
+          <div>
+            <strong id="userName">
+              المستخدم
+            </strong>
+
+            <small id="userRole">
+              —
+            </small>
+          </div>
+
         </div>
+
       </div>
+
     </aside>
 
+
+    <!-- المحتوى الرئيسي -->
     <main class="main">
+
+
+      <!-- الشريط العلوي -->
       <header class="topbar">
-        <button id="menuToggle" class="icon-btn mobile-only" aria-label="القائمة">☰</button>
+
+        <button
+          id="menuToggle"
+          class="icon-btn mobile-only"
+          aria-label="القائمة"
+          type="button"
+        >
+          ☰
+        </button>
+
+
         <div>
-          <h1 id="pageTitle">لوحة التحكم</h1>
-          <p id="pageSubtitle">إدارة عمليات وصلّي في كربلاء المقدسة</p>
+
+          <h1 id="pageTitle">
+            لوحة التحكم
+          </h1>
+
+          <p id="pageSubtitle">
+            إدارة عمليات وصلّي في كربلاء المقدسة
+          </p>
+
         </div>
+
+
         <div class="top-actions">
-          <button id="refreshBtn" class="icon-btn" title="تحديث">↻</button>
+
+          <button
+            id="refreshBtn"
+            class="icon-btn"
+            title="تحديث"
+            type="button"
+          >
+            ↻
+          </button>
+
         </div>
+
       </header>
 
+
+      <!-- الصفحات تظهر هنا -->
       <div id="content"></div>
+
+
     </main>
+
   </div>
 
+
+  <!-- النوافذ المنبثقة -->
   <div id="modalRoot"></div>
 
+
+  <!-- =========================================================
+       JavaScript Libraries
+       ========================================================= -->
+
+  <!-- Leaflet -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    crossorigin=""
+  ></script>
+
+  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Wasalli -->
   <script src="config.js"></script>
   <script src="app.js"></script>
+
 </body>
 </html>
