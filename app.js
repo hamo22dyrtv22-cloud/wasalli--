@@ -814,6 +814,7 @@ async function settleCourier(courierId){
   }
 
   await loadOrders();
+  await loadSettlements();
   renderAccounts();
   toast("تمت تسوية حساب المندوب بنجاح");
 }
