@@ -423,7 +423,7 @@ async function saveOrder(e){
   shop_id:String(shopId),
   shop:shop?.name || "",
   
-    customer:$("#fCustomer").value.trim(),
+    customer_name:$("#fCustomer").value.trim(),
     phone:$("#fPhone").value.trim(),
     fee:Number($("#fFee").value)||Number(state.settings.default_delivery_fee)||3000,
     courier_id:courierId?String(courierId):null,
