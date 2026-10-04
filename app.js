@@ -696,6 +696,49 @@ function renderAccounts(){
   $$("[data-settle-courier]").forEach(btn => {
     btn.onclick = () => settleCourier(btn.dataset.settleCourier);
   });
+  const settlementHistory = (state.settlements || []).map(s => `
+  <tr>
+    <td><strong>${esc(s.courier_name || "—")}</strong></td>
+    <td>${s.orders_count || 0}</td>
+    <td>${money(Number(s.total_fees || 0))}</td>
+    <td>${money(Number(s.courier_share || 0))}</td>
+    <td>${money(Number(s.wasalli_share || 0))}</td>
+    <td>${s.created_at ? new Date(s.created_at).toLocaleString("ar-IQ") : "—"}</td>
+  </tr>
+`).join("");
+
+$("#content").insertAdjacentHTML("beforeend", `
+  <div class="card" style="margin-top:20px">
+    <div class="card-header">
+      <h2>سجل التسويات السابقة</h2>
+      <span class="badge badge-done">${state.settlements?.length || 0} تسوية</span>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>المندوب</th>
+            <th>عدد الطلبات</th>
+            <th>إجمالي الأجور</th>
+            <th>مستحق المندوب</th>
+            <th>حصة وصلّي</th>
+            <th>تاريخ التسوية</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${settlementHistory || `
+            <tr>
+              <td colspan="6" style="text-align:center">
+                لا توجد تسويات سابقة
+              </td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  </div>
+`);
 }
 
 async function settleCourier(courierId){
