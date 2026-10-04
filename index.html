@@ -1,13 +1,17 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  >
+
   <meta name="theme-color" content="#6b2fb8">
+  <meta name="color-scheme" content="light">
 
   <title>وصلّي | نظام إدارة التوصيل</title>
-
-  <link rel="preconnect" href="https://cdn.jsdelivr.net">
 
   <!-- Leaflet Map -->
   <link
@@ -16,35 +20,50 @@
     crossorigin=""
   >
 
-  <!-- Wasalli Styles -->
+  <!-- Wasalli CSS -->
   <link rel="stylesheet" href="app.css">
 </head>
 
 <body>
 
-  <!-- التنبيهات -->
-  <div id="toast" class="toast" aria-live="polite"></div>
+  <!-- =========================================================
+       التنبيهات
+       ========================================================= -->
+  <div
+    id="toast"
+    class="toast hidden"
+    role="status"
+    aria-live="polite"
+  ></div>
 
 
   <!-- =========================================================
-       تسجيل الدخول وإنشاء الحساب
+       شاشة الدخول والتسجيل
        ========================================================= -->
   <section id="authView" class="auth-shell">
 
     <div class="auth-card">
 
-      <div class="brand brand-auth">
-        <div class="brand-logo">و</div>
+      <div class="auth-brand">
 
-        <div>
-          <div class="brand-name">وصلّي</div>
-          <small>لخدمات التوصيل</small>
+        <div class="brand-logo big">
+          و
         </div>
+
+        <div class="auth-brand-text">
+          <h1>وصلّي</h1>
+          <p>لخدمات التوصيل</p>
+          <small>#يوصلّك_ويدللك</small>
+        </div>
+
       </div>
 
 
+      <!-- تبويبات الدخول والتسجيل -->
       <div class="auth-tabs">
+
         <button
+          id="loginTab"
           class="auth-tab active"
           data-auth-tab="login"
           type="button"
@@ -53,96 +72,565 @@
         </button>
 
         <button
+          id="signupTab"
           class="auth-tab"
           data-auth-tab="signup"
           type="button"
         >
           إنشاء حساب
         </button>
+
       </div>
 
 
-      <!-- تسجيل الدخول -->
-      <form id="loginForm" class="auth-form">
+      <!-- =====================================================
+           تسجيل الدخول
+           ===================================================== -->
+      <form
+        id="loginForm"
+        class="auth-form"
+        autocomplete="on"
+      >
 
-        <label for="loginEmail">البريد الإلكتروني</label>
+        <div class="field">
 
-        <input
-          id="loginEmail"
-          type="email"
-          autocomplete="email"
-          required
-          placeholder="name@example.com"
-        >
+          <label for="loginIdentifier">
+            رقم الهاتف
+          </label>
 
-        <label for="loginPassword">كلمة المرور</label>
+          <input
+            id="loginIdentifier"
+            name="loginIdentifier"
+            type="text"
+            inputmode="tel"
+            autocomplete="username"
+            placeholder="مثال: 0780 000 0000"
+            required
+          >
 
-        <input
-          id="loginPassword"
-          type="password"
-          autocomplete="current-password"
-          required
-          placeholder="••••••••"
-        >
-
-        <button
-          class="btn btn-primary btn-block"
-          type="submit"
-        >
-          دخول
-        </button>
-
-      </form>
+        </div>
 
 
-      <!-- إنشاء الحساب -->
-      <form id="signupForm" class="auth-form hidden">
+        <div class="field">
 
-        <label for="signupName">الاسم الكامل</label>
+          <label for="loginPassword">
+            كلمة المرور
+          </label>
 
-        <input
-          id="signupName"
-          required
-          placeholder="الاسم الكامل"
-        >
+          <input
+            id="loginPassword"
+            name="loginPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="أدخل كلمة المرور"
+            required
+          >
 
-        <label for="signupEmail">البريد الإلكتروني</label>
+        </div>
 
-        <input
-          id="signupEmail"
-          type="email"
-          autocomplete="email"
-          required
-          placeholder="name@example.com"
-        >
-
-        <label for="signupPassword">كلمة المرور</label>
-
-        <input
-          id="signupPassword"
-          type="password"
-          autocomplete="new-password"
-          minlength="8"
-          required
-          placeholder="8 أحرف أو أكثر"
-        >
 
         <button
-          class="btn btn-secondary btn-block"
+          class="btn btn-primary btn-block auth-submit"
           type="submit"
         >
-          إنشاء الحساب
+          تسجيل الدخول
         </button>
 
-        <p class="muted center">
-          الحساب الجديد يكون قيد المراجعة إلى أن يفعّله مدير وصلّي
-          ويربطه بمحل أو مندوب.
+
+        <p class="auth-note">
+          الدخول الأساسي برقم الهاتف.
         </p>
 
+
+        <!--
+          هذا الجزء يحافظ على إمكانية دخول حساب الإدارة القديم
+          بالبريد الإلكتروني أثناء الانتقال إلى نظام الهاتف.
+        -->
+        <details class="legacy-login">
+
+          <summary>
+            دخول الإدارة القديم بالبريد الإلكتروني
+          </summary>
+
+          <div class="legacy-login-fields">
+
+            <div class="field">
+
+              <label for="adminEmail">
+                البريد الإلكتروني
+              </label>
+
+              <input
+                id="adminEmail"
+                name="adminEmail"
+                type="email"
+                autocomplete="email"
+                placeholder="admin@example.com"
+              >
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="adminEmailPassword">
+                كلمة المرور
+              </label>
+
+              <input
+                id="adminEmailPassword"
+                name="adminEmailPassword"
+                type="password"
+                autocomplete="current-password"
+                placeholder="كلمة المرور"
+              >
+
+            </div>
+
+
+            <button
+              id="legacyLoginBtn"
+              class="btn btn-ghost btn-block"
+              type="button"
+            >
+              دخول الإدارة بالبريد
+            </button>
+
+          </div>
+
+        </details>
+
       </form>
 
 
-      <p id="authMessage" class="form-message"></p>
+      <!-- =====================================================
+           إنشاء حساب جديد
+           ===================================================== -->
+      <form
+        id="signupForm"
+        class="auth-form hidden"
+        autocomplete="on"
+      >
+
+        <div class="form-grid auth-form-grid">
+
+
+          <!-- الاسم -->
+          <div class="field full">
+
+            <label for="signupName">
+              الاسم الكامل
+            </label>
+
+            <input
+              id="signupName"
+              name="signupName"
+              type="text"
+              autocomplete="name"
+              placeholder="الاسم الثلاثي"
+              required
+            >
+
+          </div>
+
+
+          <!-- الهاتف -->
+          <div class="field">
+
+            <label for="signupPhone">
+              رقم الهاتف
+            </label>
+
+            <input
+              id="signupPhone"
+              name="signupPhone"
+              type="text"
+              inputmode="tel"
+              autocomplete="tel"
+              placeholder="07XXXXXXXXX"
+              required
+            >
+
+          </div>
+
+
+          <!-- نوع الحساب -->
+          <div class="field">
+
+            <label for="signupType">
+              نوع الحساب
+            </label>
+
+            <select
+              id="signupType"
+              name="signupType"
+              required
+            >
+
+              <option value="">
+                اختر نوع الحساب
+              </option>
+
+              <option value="courier">
+                مندوب
+              </option>
+
+              <option value="shop">
+                محل
+              </option>
+
+              <option value="customer">
+                زبون
+              </option>
+
+              <option value="hotel">
+                فندق
+              </option>
+
+            </select>
+
+          </div>
+
+
+          <!-- كلمة المرور -->
+          <div class="field">
+
+            <label for="signupPassword">
+              كلمة المرور
+            </label>
+
+            <input
+              id="signupPassword"
+              name="signupPassword"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              placeholder="8 أحرف أو أكثر"
+              required
+            >
+
+          </div>
+
+
+          <!-- تأكيد كلمة المرور -->
+          <div class="field">
+
+            <label for="signupPasswordConfirm">
+              تأكيد كلمة المرور
+            </label>
+
+            <input
+              id="signupPasswordConfirm"
+              name="signupPasswordConfirm"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              placeholder="أعد كتابة كلمة المرور"
+              required
+            >
+
+          </div>
+
+        </div>
+
+
+        <!-- ===================================================
+             بيانات المندوب
+             تظهر فقط عند اختيار مندوب
+             =================================================== -->
+        <div
+          id="courierSignupFields"
+          class="conditional-signup hidden"
+        >
+
+          <h3>
+            بيانات المندوب
+          </h3>
+
+          <div class="form-grid">
+
+            <div class="field">
+
+              <label for="courierArea">
+                المنطقة
+              </label>
+
+              <select
+                id="courierArea"
+                name="courierArea"
+              >
+                <option value="">
+                  اختر المنطقة
+                </option>
+              </select>
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="vehicleType">
+                نوع المركبة
+              </label>
+
+              <select
+                id="vehicleType"
+                name="vehicleType"
+              >
+
+                <option value="">
+                  اختر المركبة
+                </option>
+
+                <option value="bike">
+                  دراجة نارية
+                </option>
+
+                <option value="car">
+                  سيارة
+                </option>
+
+                <option value="other">
+                  أخرى
+                </option>
+
+              </select>
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="vehicleNumber">
+                رقم المركبة
+              </label>
+
+              <input
+                id="vehicleNumber"
+                name="vehicleNumber"
+                type="text"
+                placeholder="اختياري"
+              >
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="emergencyPhone">
+                رقم للطوارئ
+              </label>
+
+              <input
+                id="emergencyPhone"
+                name="emergencyPhone"
+                type="text"
+                inputmode="tel"
+                placeholder="اختياري"
+              >
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <!-- ===================================================
+             بيانات المحل
+             تظهر فقط عند اختيار محل
+             =================================================== -->
+        <div
+          id="shopSignupFields"
+          class="conditional-signup hidden"
+        >
+
+          <h3>
+            بيانات المحل
+          </h3>
+
+          <div class="form-grid">
+
+            <div class="field">
+
+              <label for="shopName">
+                اسم المحل
+              </label>
+
+              <input
+                id="shopName"
+                name="shopName"
+                type="text"
+                placeholder="اسم المحل"
+              >
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="shopOwnerName">
+                المالك أو المسؤول
+              </label>
+
+              <input
+                id="shopOwnerName"
+                name="shopOwnerName"
+                type="text"
+                placeholder="اسم المسؤول"
+              >
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="shopArea">
+                المنطقة
+              </label>
+
+              <select
+                id="shopArea"
+                name="shopArea"
+              >
+                <option value="">
+                  اختر المنطقة
+                </option>
+              </select>
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="shopPhone">
+                رقم هاتف المحل
+              </label>
+
+              <input
+                id="shopPhone"
+                name="shopPhone"
+                type="text"
+                inputmode="tel"
+                placeholder="إذا كان مختلفًا"
+              >
+
+            </div>
+
+
+            <div class="field full">
+
+              <label for="shopAddress">
+                العنوان التفصيلي
+              </label>
+
+              <textarea
+                id="shopAddress"
+                name="shopAddress"
+                placeholder="المنطقة، الشارع، أقرب نقطة دالة..."
+              ></textarea>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <!-- ===================================================
+             بيانات الفندق
+             =================================================== -->
+        <div
+          id="hotelSignupFields"
+          class="conditional-signup hidden"
+        >
+
+          <h3>
+            بيانات الفندق
+          </h3>
+
+          <div class="form-grid">
+
+            <div class="field">
+
+              <label for="hotelName">
+                اسم الفندق
+              </label>
+
+              <input
+                id="hotelName"
+                name="hotelName"
+                type="text"
+                placeholder="اسم الفندق"
+              >
+
+            </div>
+
+
+            <div class="field">
+
+              <label for="hotelArea">
+                المنطقة
+              </label>
+
+              <select
+                id="hotelArea"
+                name="hotelArea"
+              >
+                <option value="">
+                  اختر المنطقة
+                </option>
+              </select>
+
+            </div>
+
+
+            <div class="field full">
+
+              <label for="hotelAddress">
+                العنوان التفصيلي
+              </label>
+
+              <textarea
+                id="hotelAddress"
+                name="hotelAddress"
+                placeholder="العنوان وأقرب نقطة دالة"
+              ></textarea>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <button
+          class="btn btn-secondary btn-block auth-submit"
+          type="submit"
+        >
+          إرسال طلب التسجيل
+        </button>
+
+
+        <div class="registration-info">
+
+          <strong>
+            ملاحظة:
+          </strong>
+
+          الحساب الجديد لا يدخل للنظام مباشرة.
+          يتم إرسال الطلب إلى إدارة وصلّي للمراجعة والتفعيل.
+
+        </div>
+
+      </form>
+
+
+      <p
+        id="authMessage"
+        class="form-message"
+        aria-live="polite"
+      ></p>
 
     </div>
 
@@ -150,23 +638,31 @@
 
 
   <!-- =========================================================
-       الحساب قيد المراجعة
+       حساب بانتظار الموافقة
        ========================================================= -->
-  <section id="pendingView" class="auth-shell hidden">
+  <section
+    id="pendingView"
+    class="auth-shell hidden"
+  >
 
-    <div class="auth-card center">
+    <div class="auth-card pending-card">
 
-      <div class="brand-logo big">و</div>
+      <div class="brand-logo big">
+        و
+      </div>
 
-      <h2>الحساب قيد المراجعة</h2>
+      <h2>
+        طلبك قيد المراجعة
+      </h2>
 
       <p class="muted">
-        تم تسجيل الدخول، لكن الحساب لم يُفعّل بعد من إدارة وصلّي.
+        تم استلام بياناتك بنجاح.
+        ستتمكن من استخدام النظام بعد موافقة إدارة وصلّي.
       </p>
 
       <button
         id="pendingLogout"
-        class="btn btn-danger"
+        class="btn btn-danger btn-block"
         type="button"
       >
         تسجيل الخروج
@@ -178,39 +674,70 @@
 
 
   <!-- =========================================================
-       التطبيق الرئيسي
+       التطبيق
        ========================================================= -->
-  <div id="appView" class="app hidden">
+  <div
+    id="appView"
+    class="app hidden"
+  >
 
 
-    <!-- القائمة الجانبية -->
-    <aside class="sidebar" id="sidebar">
+    <!-- خلفية القائمة على الموبايل -->
+    <div
+      id="sidebarBackdrop"
+      class="sidebar-backdrop hidden"
+    ></div>
+
+
+    <!-- =======================================================
+         القائمة الجانبية
+         ======================================================= -->
+    <aside
+      id="sidebar"
+      class="sidebar"
+    >
 
       <div class="brand">
 
-        <div class="brand-logo">و</div>
+        <div class="brand-logo">
+          و
+        </div>
 
         <div>
-          <div class="brand-name">وصلّي</div>
-          <small>لخدمات التوصيل</small>
+
+          <div class="brand-name">
+            وصلّي
+          </div>
+
+          <small>
+            لخدمات التوصيل
+          </small>
+
         </div>
 
       </div>
 
 
-      <!-- القائمة تُنشأ من app.js -->
-      <nav id="navMenu" class="nav"></nav>
+      <!-- ينشئها app.js حسب صلاحية المستخدم -->
+      <nav
+        id="navMenu"
+        class="nav"
+      ></nav>
 
 
       <div class="sidebar-foot">
 
         <div class="user-mini">
 
-          <div id="userAvatar" class="avatar">
-            م
+          <div
+            id="userAvatar"
+            class="avatar"
+          >
+            و
           </div>
 
-          <div>
+          <div class="user-mini-info">
+
             <strong id="userName">
               المستخدم
             </strong>
@@ -218,52 +745,92 @@
             <small id="userRole">
               —
             </small>
+
           </div>
 
         </div>
+
+
+        <button
+          id="logoutBtn"
+          class="btn sidebar-logout"
+          type="button"
+        >
+          تسجيل الخروج
+        </button>
 
       </div>
 
     </aside>
 
 
-    <!-- المحتوى الرئيسي -->
+    <!-- =======================================================
+         المحتوى الرئيسي
+         ======================================================= -->
     <main class="main">
 
 
-      <!-- الشريط العلوي -->
+      <!-- =====================================================
+           الشريط العلوي
+           ===================================================== -->
       <header class="topbar">
 
-        <button
-          id="menuToggle"
-          class="icon-btn mobile-only"
-          aria-label="القائمة"
-          type="button"
-        >
-          ☰
-        </button>
+        <div class="topbar-start">
+
+          <button
+            id="menuToggle"
+            class="icon-btn mobile-only"
+            type="button"
+            aria-label="فتح القائمة"
+          >
+            ☰
+          </button>
 
 
-        <div>
+          <div class="page-heading">
 
-          <h1 id="pageTitle">
-            لوحة التحكم
-          </h1>
+            <h1 id="pageTitle">
+              لوحة التحكم
+            </h1>
 
-          <p id="pageSubtitle">
-            إدارة عمليات وصلّي في كربلاء المقدسة
-          </p>
+            <p id="pageSubtitle">
+              إدارة عمليات وصلّي في كربلاء المقدسة
+            </p>
+
+          </div>
 
         </div>
 
 
         <div class="top-actions">
 
+          <!-- مركز الإشعارات -->
+          <button
+            id="notificationBtn"
+            class="icon-btn notification-button"
+            type="button"
+            title="الإشعارات"
+            aria-label="الإشعارات"
+          >
+            🔔
+
+            <span
+              id="notificationBadge"
+              class="notification-badge hidden"
+            >
+              0
+            </span>
+
+          </button>
+
+
+          <!-- تحديث -->
           <button
             id="refreshBtn"
             class="icon-btn"
-            title="تحديث"
             type="button"
+            title="تحديث البيانات"
+            aria-label="تحديث البيانات"
           >
             ↻
           </button>
@@ -273,8 +840,19 @@
       </header>
 
 
-      <!-- الصفحات تظهر هنا -->
-      <div id="content"></div>
+      <!-- =====================================================
+           منطقة عرض الصفحات
+           ===================================================== -->
+      <div
+        id="content"
+        class="content"
+      >
+
+        <div class="page-loading">
+          جاري تحميل نظام وصلّي...
+        </div>
+
+      </div>
 
 
     </main>
@@ -282,13 +860,51 @@
   </div>
 
 
-  <!-- النوافذ المنبثقة -->
+  <!-- =========================================================
+       النوافذ المنبثقة
+       ========================================================= -->
   <div id="modalRoot"></div>
 
 
   <!-- =========================================================
-       JavaScript Libraries
+       طبقة تحميل عامة
        ========================================================= -->
+  <div
+    id="globalLoading"
+    class="global-loading hidden"
+  >
+
+    <div class="loading-box">
+
+      <div class="loading-spinner"></div>
+
+      <strong>
+        يرجى الانتظار...
+      </strong>
+
+    </div>
+
+  </div>
+
+
+  <!-- =========================================================
+       الصوت الداخلي للإشعارات
+       ========================================================= -->
+  <audio
+    id="notificationSound"
+    preload="auto"
+  ></audio>
+
+
+  <!-- =========================================================
+       المكتبات
+       ========================================================= -->
+
+  <!-- Supabase -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+  ></script>
+
 
   <!-- Leaflet -->
   <script
@@ -296,10 +912,23 @@
     crossorigin=""
   ></script>
 
-  <!-- Supabase -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Wasalli -->
+  <!-- SheetJS لتصدير Excel -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+  ></script>
+
+
+  <!-- jsPDF لتصدير PDF -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"
+  ></script>
+
+
+  <!-- =========================================================
+       ملفات وصلّي
+       الترتيب مهم
+       ========================================================= -->
   <script src="config.js"></script>
   <script src="app.js"></script>
 
