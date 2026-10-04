@@ -11,6 +11,7 @@ const state = {
   shops: [],
   couriers: [],
   profiles: [],
+  settlements: [],
   settings: {
     default_delivery_fee: C.DEFAULT_DELIVERY_FEE,
     courier_percent: C.DEFAULT_COURIER_PERCENT,
@@ -220,7 +221,7 @@ function setUserMini(){
 }
 
 async function loadAll(showToast=false){
-  const tasks = [loadSettings(), loadShops(), loadCouriers(), loadOrders()];
+  const tasks = [loadSettings(), loadShops(), loadCouriers(), loadOrders(), loadSettlements()];
   if(isAdmin()) tasks.push(loadProfiles());
   await Promise.all(tasks);
   renderPage();
@@ -254,7 +255,20 @@ async function loadOrders(){
   if(error){ console.warn(error); state.orders=[]; toast("تعذر تحميل الطلبات", "error"); return; }
   state.orders=data||[];
 }
+async function loadSettlements(){
+  const {data,error} = await sb
+    .from("courier_settlements")
+    .select("*")
+    .order("created_at",{ascending:false});
 
+  if(error){
+    console.warn("settlements",error);
+    state.settlements=[];
+    return;
+  }
+
+  state.settlements=data||[];
+}
 async function loadProfiles(){
   const {data,error}=await sb.from("profiles").select("*").order("created_at",{ascending:false});
   if(error){ console.warn(error); state.profiles=[]; return; }
