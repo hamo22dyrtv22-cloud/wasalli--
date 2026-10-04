@@ -39,14 +39,15 @@ function toast(msg, type="ok"){
 }
 
 function statusBadge(status){
-  const map = {
-    new:["طلب جديد","badge-new"],
-    assigned:["مُسند","badge-assigned"],
-    picked_up:["تم الاستلام","badge-assigned"],
-    road:["بالطريق","badge-road"],
-    delivered:["تم التسليم","badge-done"],
-    cancelled:["ملغي","badge-cancel"]
-  };
+ const map = {
+  new:["طلب جديد","badge-new"],
+  assigned:["أُسند","badge-assigned"],
+  accepted:["تم القبول","badge-assigned"],
+  picked_up:["تم الاستلام","badge-assigned"],
+  on_the_way:["بالطريق","badge-road"],
+  delivered:["تم التسليم","badge-done"],
+  cancelled:["ملغي","badge-cancel"]
+};
   const [t,c] = map[status] || [status || "غير محدد","badge-new"];
   return `<span class="badge ${c}">${esc(t)}</span>`;
 }
@@ -475,10 +476,17 @@ function openOrderDetails(id){
   $$("[data-cstatus]").forEach(b=>b.onclick=()=>courierUpdateStatus(o,b.dataset.cstatus));
 }
 
-function statusLabel(s){
-  return ({new:"طلب جديد",assigned:"مُسند",picked_up:"تم الاستلام",road:"بالطريق",delivered:"تم التسليم",cancelled:"ملغي"})[s]||s;
+ function statusLabel(s){
+  return ({
+    new:"طلب جديد",
+    assigned:"أُسند",
+    accepted:"تم القبول",
+    picked_up:"تم الاستلام",
+    on_the_way:"بالطريق",
+    delivered:"تم التسليم",
+    cancelled:"ملغي"
+  })[s] || s;
 }
-
 async function adminUpdateOrder(o){
   const courierId=$("#editCourier").value || null;
   const courier=state.couriers.find(c=>String(c.id)===String(courierId));
