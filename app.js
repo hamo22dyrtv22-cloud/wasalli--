@@ -325,7 +325,7 @@ function renderDashboard(){
       <div class="card">
         <div class="card-header"><h2>ملخص سريع</h2></div>
         <div class="kpi-line"><span>طلبات جديدة</span><strong>${all.filter(o=>o.status==="new").length}</strong></div>
-        <div class="kpi-line"><span>بالطريق</span><strong>${all.filter(o=>o.status==="road").length}</strong></div>
+        <div class="kpi-line"><span>بالطريق</span><strong>${all.filter(o=>o.status==="on_the_way").length}</strong></div>
         <div class="kpi-line"><span>تم التسليم</span><strong>${done.length}</strong></div>
         ${isAdmin()?`<div class="kpi-line"><span>المحلات</span><strong>${state.shops.length}</strong></div>`:""}
       </div>
