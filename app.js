@@ -597,7 +597,7 @@ function renderAccounts(){
 function renderReports(){
   if(!isAdmin()){state.page="dashboard";return renderDashboard();}
   setTitle("التقارير");
-  const byStatus=["new","assigned","picked_up","road","delivered","cancelled"].map(s=>[statusLabel(s),state.orders.filter(o=>o.status===s).length]);
+ const byStatus=["new","assigned","accepted","picked_up","on_the_way","delivered","cancelled"].map(s=>[statusLabel(s),state.orders.filter(o=>o.status===s).length]);
   const totalFees=deliveredOrders().reduce((s,o)=>s+Number(o.fee||0),0);
   $("#content").innerHTML=`<div class="grid two-col">
     <div class="card"><div class="card-header"><h2>📊 حالات الطلبات</h2></div>
