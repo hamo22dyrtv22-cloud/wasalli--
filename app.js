@@ -401,7 +401,7 @@ function openOrderModal(){
         ${isAdmin()?`<div class="field"><label>المندوب</label><select id="fCourier"><option value="">غير مسند</option>${courierOptions}</select></div>`:""}
         <div class="field ${isAdmin()?"":"full"}"><label>الحالة</label><select id="fStatus">
           <option value="new">طلب جديد</option>
-          ${isAdmin()?`<option value="assigned">مُسند</option><option value="road">بالطريق</option><option value="delivered">تم التسليم</option>`:""}
+          ${isAdmin()?`<option value="assigned">مُسند</option><option value="on_the_way">بالطريق</option><option value="delivered">تم التسليم</option>`:""}
         </select></div>
         <div class="field full"><label>العنوان</label><textarea id="fAddress" placeholder="العنوان أو أقرب نقطة دالة"></textarea></div>
         <div class="field full"><label>ملاحظات</label><textarea id="fNotes"></textarea></div>
@@ -458,15 +458,15 @@ function openOrderDetails(id){
       <div class="form-grid" style="margin-top:18px">
         <div class="field"><label>المندوب</label><select id="editCourier"><option value="">غير مسند</option>${courierOptions}</select></div>
         <div class="field"><label>الحالة</label><select id="editStatus">
-          ${["new","assigned","picked_up","road","delivered","cancelled"].map(s=>`<option value="${s}" ${o.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}
+          ${["new","assigned","picked_up","on_the_way","delivered","cancelled"].map(s=>`<option value="${s}" ${o.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}
         </select></div>
       </div>
       <div class="form-actions"><button class="btn btn-ghost" data-close>إغلاق</button><button id="saveOrderEdit" class="btn btn-primary">حفظ التغيير</button></div>
     `:courierFlow?`
       <div class="actions" style="margin-top:18px">
         ${o.status==="assigned"||o.status==="new"?`<button class="btn btn-secondary" data-cstatus="picked_up">استلمت الطلب</button>`:""}
-        ${o.status==="picked_up"?`<button class="btn btn-primary" data-cstatus="road">بالطريق</button>`:""}
-        ${o.status==="road"?`<button class="btn btn-primary" data-cstatus="delivered">تم التسليم</button>`:""}
+        ${o.status==="picked_up"?`<button class="btn btn-primary" data-cstatus="on_the_way">بالطريق</button>`:""}
+        ${o.status==="on_the_way"?`<button class="btn btn-primary" data-cstatus="delivered">تم التسليم</button>`:""}
         <button class="btn btn-ghost" data-close>إغلاق</button>
       </div>
     `:`<div class="form-actions"><button class="btn btn-ghost" data-close>إغلاق</button></div>`}
