@@ -259,7 +259,7 @@ async function loadSettlements(){
   const {data,error} = await sb
     .from("courier_settlements")
     .select("*")
-    .order("created_at",{ascending:false});
+    .order("id",{ascending:false});
 
   if(error){
     console.warn("settlements",error);
