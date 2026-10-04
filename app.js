@@ -419,9 +419,10 @@ async function saveOrder(e){
   const shop = state.shops.find(s=>String(s.id)===String(shopId));
   const courier = state.couriers.find(c=>String(c.id)===String(courierId));
   const payload = {
-    order_number: "W"+Date.now().toString().slice(-8),
-    shop_id:String(shopId),
-    shop:shop?.name || "",
+   
+  shop_id:String(shopId),
+  shop:shop?.name || "",
+  
     customer:$("#fCustomer").value.trim(),
     phone:$("#fPhone").value.trim(),
     fee:Number($("#fFee").value)||Number(state.settings.default_delivery_fee)||3000,
