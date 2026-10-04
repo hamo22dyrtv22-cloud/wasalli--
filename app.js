@@ -12,6 +12,8 @@ const state = {
   couriers: [],
   profiles: [],
   settlements: [],
+  areas: [],
+  routePricing: [],
   settings: {
     default_delivery_fee: C.DEFAULT_DELIVERY_FEE,
     courier_percent: C.DEFAULT_COURIER_PERCENT,
@@ -47,19 +49,22 @@ function statusBadge(status){
   picked_up:["تم الاستلام","badge-assigned"],
   on_the_way:["بالطريق","badge-road"],
   delivered:["تم التسليم","badge-done"],
-  cancelled:["ملغي","badge-cancel"]
+  cancelled:["ملغي","badge-cancel"],
+  returned:["راجع","badge-return"]
 };
   const [t,c] = map[status] || [status || "غير محدد","badge-new"];
   return `<span class="badge ${c}">${esc(t)}</span>`;
 }
 
 function roleLabel(role){
-  return ({admin:"الإدارة",shop:"المحل",courier:"المندوب",pending:"قيد المراجعة"})[role] || role || "—";
+  return ({admin:"الإدارة",shop:"المحل",courier:"المندوب",pending:"قيد المراجعة",operations:"العمليات",accountant:"المحاسب",customer:"الزبون",hotel:"الفندق"})[role] || role || "—";
 }
 
 function isAdmin(){ return state.profile?.role === "admin"; }
 function isShop(){ return state.profile?.role === "shop"; }
 function isCourier(){ return state.profile?.role === "courier"; }
+function isOperations(){ return state.profile?.role === "operations"; }
+function canOperate(){ return isAdmin() || isOperations(); }
 
 const NAV = {
   admin:[
@@ -68,6 +73,7 @@ const NAV = {
     ["shops","🏪","المحلات"],
     ["couriers","🛵","المندوبون"],
     ["map","🗺️","الخريطة"],
+    ["pricing","📍","المناطق والتسعير"],
     ["accounts","💰","الحسابات"],
     ["reports","📊","التقارير"],
     ["users","👥","الحسابات والصلاحيات"],
@@ -221,7 +227,7 @@ function setUserMini(){
 }
 
 async function loadAll(showToast=false){
-  const tasks = [loadSettings(), loadShops(), loadCouriers(), loadOrders(), loadSettlements()];
+  const tasks = [loadSettings(), loadShops(), loadCouriers(), loadOrders(), loadSettlements(), loadAreas(), loadRoutePricing()];
   if(isAdmin()) tasks.push(loadProfiles());
   await Promise.all(tasks);
   renderPage();
@@ -269,6 +275,21 @@ async function loadSettlements(){
 
   state.settlements=data||[];
 }
+
+async function loadAreas(){
+  const {data,error}=await sb.from("areas").select("*").eq("is_active",true).order("name");
+  if(error){console.warn("areas",error);state.areas=[];return;} state.areas=data||[];
+}
+async function loadRoutePricing(){
+  const {data,error}=await sb.from("route_pricing").select("*").eq("is_active",true).order("pickup_area");
+  if(error){console.warn("route_pricing",error);state.routePricing=[];return;} state.routePricing=data||[];
+}
+function orderCode(o){ return `W-${o.order_number || String(o.id||"").slice(0,6)}`; }
+function orderCustomer(o){ return o.customer_name || o.customer || "—"; }
+function orderPhone(o){ return o.customer_phone || o.phone || ""; }
+function orderFee(o){ return Number(o.delivery_fee ?? o.fee ?? 0); }
+function areaOptions(selected=""){ return state.areas.map(a=>`<option value="${esc(a.name)}" ${a.name===selected?"selected":""}>${esc(a.name)}</option>`).join(""); }
+
 async function loadProfiles(){
   const {data,error}=await sb.from("profiles").select("*").order("created_at",{ascending:false});
   if(error){ console.warn(error); state.profiles=[]; return; }
@@ -283,6 +304,7 @@ function renderPage(){
     shops:renderShops,
     couriers:renderCouriers,
     map:renderMap,
+    pricing:renderPricing,
     accounts:renderAccounts,
     reports:renderReports,
     users:renderUsers,
@@ -318,7 +340,7 @@ function renderDashboard(){
       ["المسند إليّ",all.length,"كل الطلبات"],
       ["اليوم",today.length,"طلبات اليوم"],
       ["تم التسليم",done.length,"مكتمل"],
-      ["مستحقاتي",money(fees*(Number(state.settings.courier_percent)||75)/100),"تقريبي"]
+      ["مستحقاتي",money(fees*(Number(state.settings.courier_percent)||70)/100),"تقريبي"]
     ]
     : [
       ["الطلبات",all.length,"إجمالي الطلبات"],
@@ -352,9 +374,10 @@ function filteredOrders(term=""){
   if(!term) return state.orders;
   return state.orders.filter(o =>
     String(o.id||"").toLowerCase().includes(term) ||
-    String(o.customer||"").toLowerCase().includes(term) ||
+    String(orderCustomer(o)).toLowerCase().includes(term) ||
+    String(orderCode(o)).toLowerCase().includes(term) ||
     String(o.shop||"").toLowerCase().includes(term) ||
-    String(o.phone||"").toLowerCase().includes(term)
+    String(orderPhone(o)).toLowerCase().includes(term)
   );
 }
 
@@ -363,11 +386,11 @@ function ordersTable(list, withActions=true){
   return `<div class="table-wrap"><table>
     <thead><tr><th>الطلب</th><th>المحل</th><th>الزبون</th><th>المندوب</th><th>الأجرة</th><th>الحالة</th>${withActions?"<th>إجراء</th>":""}</tr></thead>
     <tbody>${list.map(o=>`<tr>
-      <td><strong>#${esc(o.order_number || o.id)}</strong><small style="display:block;color:#777">${dateTime(o.created_at)}</small></td>
+      <td><strong>${esc(orderCode(o))}</strong><small style="display:block;color:#777">${dateTime(o.created_at)}</small></td>
       <td>${esc(o.shop || shopName(o.shop_id))}</td>
-      <td><strong>${esc(o.customer)}</strong><small style="display:block;color:#777">${esc(o.phone||"")}</small></td>
+      <td><strong>${esc(orderCustomer(o))}</strong><small style="display:block;color:#777">${esc(orderPhone(o))}</small></td>
       <td>${esc(o.courier || courierName(o.courier_id) || "غير مسند")}</td>
-      <td>${money(o.fee)}</td>
+      <td>${money(orderFee(o))}</td>
       <td>${statusBadge(o.status)}</td>
       ${withActions?`<td><button class="btn btn-ghost" data-order="${esc(o.id)}">فتح</button></td>`:""}
     </tr>`).join("")}</tbody>
@@ -417,7 +440,13 @@ function openOrderModal(){
           <option value="new">طلب جديد</option>
           ${isAdmin()?`<option value="assigned">مُسند</option><option value="on_the_way">بالطريق</option><option value="delivered">تم التسليم</option>`:""}
         </select></div>
-        <div class="field full"><label>العنوان</label><textarea id="fAddress" placeholder="العنوان أو أقرب نقطة دالة"></textarea></div>
+        <div class="field"><label>قيمة البضاعة</label><input id="fGoods" type="number" value="0" min="0"></div>
+        <div class="field"><label>طريقة الدفع</label><select id="fPayment"><option value="cash_on_delivery">البضاعة + التوصيل عند الاستلام</option><option value="goods_prepaid">البضاعة مدفوعة — تحصيل التوصيل فقط</option><option value="fully_prepaid">الطلب مدفوع بالكامل</option></select></div>
+        <div class="field"><label>دافع أجرة التوصيل</label><select id="fFeePayer"><option value="customer">الزبون</option><option value="shop">المحل عند الاستلام</option></select></div>
+        <div class="field"><label>مصدر الطلب</label><select id="fSource"><option value="whatsapp">واتساب</option><option value="phone">هاتف</option><option value="instagram">إنستغرام</option><option value="facebook">فيسبوك</option><option value="other">أخرى</option></select></div>
+        <div class="field"><label>منطقة الاستلام</label><select id="fPickupArea"><option value="">اختر</option>${areaOptions()}</select></div>
+        <div class="field"><label>منطقة التسليم</label><select id="fDeliveryArea"><option value="">اختر</option>${areaOptions()}</select></div>
+        <div class="field full"><label>العنوان التفصيلي / أقرب نقطة دالة</label><textarea id="fAddress" placeholder="العنوان أو أقرب نقطة دالة"></textarea></div>
         <div class="field full"><label>ملاحظات</label><textarea id="fNotes"></textarea></div>
       </div>
       <div class="form-actions"><button class="btn btn-ghost" type="button" data-close>إلغاء</button><button class="btn btn-primary" type="submit">حفظ الطلب</button></div>
@@ -439,12 +468,23 @@ async function saveOrder(e){
   shop:shop?.name || "",
   
     customer_name:$("#fCustomer").value.trim(),
+    customer:$("#fCustomer").value.trim(),
+    customer_phone:$("#fPhone").value.trim(),
     phone:$("#fPhone").value.trim(),
+    delivery_fee:Number($("#fFee").value)||Number(state.settings.default_delivery_fee)||3000,
     fee:Number($("#fFee").value)||Number(state.settings.default_delivery_fee)||3000,
+    goods_value:Number($("#fGoods")?.value)||0,
+    payment_mode:$("#fPayment")?.value||"cash_on_delivery",
+    delivery_fee_payer:$("#fFeePayer")?.value||"customer",
+    pickup_area:$("#fPickupArea")?.value||null,
+    delivery_area:$("#fDeliveryArea")?.value||null,
+    source:isShop()?"shop":($("#fSource")?.value||"other"),
     courier_id:courierId?String(courierId):null,
     courier:courier?.name || null,
     status:$("#fStatus").value,
     address:$("#fAddress").value.trim(),
+    delivery_address:$("#fAddress").value.trim(),
+    detailed_address:$("#fAddress").value.trim(),
     notes:$("#fNotes").value.trim(),
     created_by:state.session.user.id
   };
@@ -565,17 +605,26 @@ function entityModal(type){
 }
 
 function renderMap(){
-  if(!isAdmin()){state.page="dashboard";return renderDashboard();}
-  setTitle("الخريطة التشغيلية","عرض تشغيلي لكربلاء — بدون تتبع حي للزبائن");
-  const located=state.shops.filter(s=>s.lat&&s.lng).length;
-  $("#content").innerHTML=`
-    <div class="card">
-      <div class="card-header"><h2>🗺️ كربلاء المقدسة</h2><span class="badge badge-new">${located} محل بإحداثيات</span></div>
-      <div class="map-box">
-        <iframe loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=43.94%2C32.56%2C44.12%2C32.70&layer=mapnik&marker=32.616%2C44.024"></iframe>
-        <div class="map-overlay">الخريطة مرجعية للإدارة وليست تتبعاً حياً للمندوب.</div>
-      </div>
-    </div>`;
+  setTitle("الخريطة التشغيلية","المحلات والمندوبون والطلبات النشطة في كربلاء المقدسة");
+  $("#content").innerHTML=`<div class="card"><div class="card-header"><h2>🗺️ غرفة العمليات</h2><span class="badge badge-new">OpenStreetMap</span></div><div id="liveMap" class="map-box"></div><div class="map-legend"><span>🏪 المحلات</span><span>🛵 المندوبون</span><span>📦 وجهات الطلبات النشطة</span></div></div>`;
+  if(!window.L){ $("#liveMap").innerHTML='<div class="empty">تعذر تحميل الخريطة</div>'; return; }
+  const map=L.map('liveMap').setView([32.6160,44.0249],13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  const bounds=[];
+  state.shops.forEach(x=>{const lat=Number(x.lat??x.latitude),lng=Number(x.lng??x.longitude);if(!lat||!lng)return;bounds.push([lat,lng]);L.marker([lat,lng],{icon:L.divIcon({className:'wasalli-marker',html:'<div class="shop-marker">➜</div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map).bindPopup(`<strong>${esc(x.name)}</strong><br>${esc(x.area||x.address||'')}`)});
+  state.couriers.filter(c=>c.is_active!==false && c.is_available).forEach(c=>{const lat=Number(c.latitude),lng=Number(c.longitude);if(!lat||!lng)return;bounds.push([lat,lng]);const active=state.orders.find(o=>String(o.courier_id||'')===String(c.id)&&['accepted','picked_up','on_the_way','assigned'].includes(o.status));L.marker([lat,lng],{icon:L.divIcon({className:'wasalli-marker',html:`<div class="courier-label">${esc(c.name)}</div><div class="courier-marker">🛵</div>`,iconSize:[80,52],iconAnchor:[40,35]})}).addTo(map).bindPopup(`<strong>${esc(c.name)}</strong><br>${c.is_available?'متاح':'غير متاح'}${active?`<br>الطلب: ${esc(orderCode(active))}`:''}`)});
+  state.orders.filter(o=>['accepted','picked_up','on_the_way','assigned'].includes(o.status)).forEach(o=>{const lat=Number(o.customer_lat??o.latitude),lng=Number(o.customer_lng??o.longitude);if(!lat||!lng)return;bounds.push([lat,lng]);L.marker([lat,lng],{icon:L.divIcon({className:'wasalli-marker',html:'<div class="order-marker">📦</div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(map).bindPopup(`<strong>${esc(orderCode(o))}</strong><br>${esc(orderCustomer(o))}<br>${esc(o.delivery_area||o.detailed_address||o.address||'')}`)});
+  if(bounds.length) map.fitBounds(bounds,{padding:[35,35],maxZoom:15});
+  setTimeout(()=>map.invalidateSize(),100);
+}
+
+function renderPricing(){
+  setTitle("المناطق والتسعير","A = 2,000 د.ع — B = 3,000 د.ع — C = تحديد يدوي");
+  const can=canOperate();
+  $("#content").innerHTML=`<div class="grid two-col"><div class="card"><div class="card-header"><h2>📍 مناطق كربلاء</h2><span class="badge badge-new">${state.areas.length} منطقة</span></div><div class="area-chips">${state.areas.map(a=>`<span class="area-chip">${esc(a.name)}</span>`).join('')}</div></div><div class="card"><div class="card-header"><h2>إضافة/تعديل مسار</h2></div>${can?`<form id="pricingForm"><div class="field"><label>منطقة الاستلام</label><select id="prPickup" required><option value="">اختر</option>${areaOptions()}</select></div><div class="field"><label>منطقة التسليم</label><select id="prDelivery" required><option value="">اختر</option>${areaOptions()}</select></div><div class="field"><label>الفئة</label><select id="prClass"><option value="A">A — 2,000</option><option value="B">B — 3,000</option><option value="C">C — يدوي</option></select></div><div class="field" id="prFeeWrap"><label>الأجرة</label><input id="prFee" type="number" value="2000" min="0"></div><div class="form-actions"><button class="btn btn-primary">حفظ المسار</button></div></form>`:'<div class="notice">عرض فقط</div>'}</div></div><div class="card" style="margin-top:18px"><div class="card-header"><h2>جدول المسارات</h2></div><div class="table-wrap"><table><thead><tr><th>من</th><th>إلى</th><th>الفئة</th><th>الأجرة</th></tr></thead><tbody>${state.routePricing.map(r=>`<tr><td>${esc(r.pickup_area)}</td><td>${esc(r.delivery_area)}</td><td><strong>${esc(r.pricing_class)}</strong></td><td>${r.pricing_class==='C'&&!r.fee?'تحديد يدوي':money(r.fee)}</td></tr>`).join('')||'<tr><td colspan="4">لم تتم إضافة مسارات بعد</td></tr>'}</tbody></table></div></div>`;
+  if(!can)return;
+  $('#prClass').onchange=()=>{const c=$('#prClass').value;$('#prFee').value=c==='A'?2000:c==='B'?3000:'';};
+  $('#pricingForm').onsubmit=async e=>{e.preventDefault();const c=$('#prClass').value;const fee=c==='A'?2000:c==='B'?3000:(Number($('#prFee').value)||null);const payload={pickup_area:$('#prPickup').value,delivery_area:$('#prDelivery').value,pricing_class:c,fee,is_active:true,updated_by:state.session.user.id};const {error}=await sb.from('route_pricing').upsert(payload,{onConflict:'pickup_area,delivery_area'});if(error){toast(error.message,'error');return;}await loadRoutePricing();renderPricing();toast('تم حفظ التسعير ✅');};
 }
 
 function renderAccounts(){
@@ -595,27 +644,67 @@ function renderAccounts(){
     );
 
     const total = myOrders.reduce((s,o) => s + Number(o.fee || 0), 0);
+    const mySettlements = (state.settlements || []).filter(s =>
+      String(s.courier_id || "") === String(state.profile?.courier_id || "")
+    );
+    const lastSettlement = mySettlements[0];
 
     $("#content").innerHTML = `
       <div class="grid stats-grid">
         <div class="card stat">
           <div class="label">طلبات غير مسوّاة</div>
           <div class="value">${myOrders.length}</div>
+          <div class="hint">طلبات مسلّمة بانتظار التسوية</div>
         </div>
 
         <div class="card stat">
           <div class="label">إجمالي أجور التوصيل</div>
           <div class="value">${money(total)}</div>
+          <div class="hint">للطلبات غير المسوّاة</div>
         </div>
 
         <div class="card stat">
           <div class="label">نسبتي</div>
           <div class="value">${courierPct}%</div>
+          <div class="hint">حصة المندوب المعتمدة</div>
         </div>
 
         <div class="card stat">
-          <div class="label">مستحقاتي</div>
+          <div class="label">مستحقاتي الحالية</div>
           <div class="value">${money(total * courierPct / 100)}</div>
+          <div class="hint">المبلغ غير المسوّى</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <div class="card-header">
+          <h2>آخر تسوية</h2>
+          <span class="badge badge-done">${mySettlements.length} تسوية</span>
+        </div>
+        ${lastSettlement ? `
+          <div class="quick-list">
+            <div class="quick-item"><span>عدد الطلبات</span><strong>${lastSettlement.orders_count || 0}</strong></div>
+            <div class="quick-item"><span>إجمالي الأجور</span><strong>${money(lastSettlement.total_fees)}</strong></div>
+            <div class="quick-item"><span>المبلغ المستلم</span><strong>${money(lastSettlement.courier_share)}</strong></div>
+          </div>
+        ` : `<div class="empty">لا توجد تسويات سابقة</div>`}
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <div class="card-header"><h2>سجل تسوياتي</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>عدد الطلبات</th><th>إجمالي الأجور</th><th>مستحقاتي</th></tr></thead>
+            <tbody>
+              ${mySettlements.length ? mySettlements.map(s => `
+                <tr>
+                  <td>${s.orders_count || 0}</td>
+                  <td>${money(s.total_fees)}</td>
+                  <td><strong>${money(s.courier_share)}</strong></td>
+                </tr>
+              `).join("") : `<tr><td colspan="3" style="text-align:center">لا توجد تسويات سابقة</td></tr>`}
+            </tbody>
+          </table>
         </div>
       </div>
     `;
@@ -831,7 +920,7 @@ function renderReports(){
     <div class="card"><div class="card-header"><h2>ملخص مالي</h2></div>
       <div class="kpi-line"><span>الطلبات المسلّمة</span><strong>${deliveredOrders().length}</strong></div>
       <div class="kpi-line"><span>إجمالي أجور التوصيل</span><strong class="money">${money(totalFees)}</strong></div>
-      <div class="kpi-line"><span>حصة وصلّي</span><strong class="money">${money(totalFees*(Number(state.settings.company_percent)||25)/100)}</strong></div>
+      <div class="kpi-line"><span>حصة وصلّي</span><strong class="money">${money(totalFees*(Number(state.settings.company_percent)||30)/100)}</strong></div>
     </div>
   </div>`;
 }
@@ -891,8 +980,8 @@ function renderSettings(){
         <div class="field"><label>منطقة العمل</label><input id="sCity" value="${esc(state.settings.city)}"></div>
         <div class="field"><label>أجرة التوصيل الافتراضية</label><input id="sFee" type="number" value="${Number(state.settings.default_delivery_fee)||3000}"></div>
         <div class="field"><label>رقم واتساب الطلبات</label><input id="sWhatsapp" value="${esc(state.settings.whatsapp||"")}"></div>
-        <div class="field"><label>نسبة المندوب %</label><input id="sCourierPct" type="number" min="0" max="100" value="${Number(state.settings.courier_percent)||75}"></div>
-        <div class="field"><label>نسبة وصلّي %</label><input id="sCompanyPct" type="number" min="0" max="100" value="${Number(state.settings.company_percent)||25}"></div>
+        <div class="field"><label>نسبة المندوب %</label><input id="sCourierPct" type="number" min="0" max="100" value="${Number(state.settings.courier_percent)||70}"></div>
+        <div class="field"><label>نسبة وصلّي %</label><input id="sCompanyPct" type="number" min="0" max="100" value="${Number(state.settings.company_percent)||30}"></div>
       </div>
       <div class="form-actions"><button class="btn btn-primary">حفظ الإعدادات</button></div>
     </form>`:`<div class="notice">بيانات الحساب والصلاحيات تتم إدارتها من إدارة وصلّي.</div>`;
