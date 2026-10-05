@@ -9500,11 +9500,75 @@
   }
 
   injectPart3Styles();
-    /* =========================================================
+   /* =========================================================
      ACCOUNTS / FINANCE
      ========================================================= */
 
+  function buildCourierBalances() {
+    return state.couriers
+      .filter(
+        courier =>
+          courier.is_active !== false &&
+          !courier.archived_at
+      )
+      .map(courier => {
+        const courierOrders =
+          state.orders.filter(
+            order =>
+              String(order.courier_id) ===
+              String(courier.id)
+          );
+
+        const closedOrders =
+          courierOrders.filter(order =>
+            ["delivered", "returned"].includes(
+              order.status
+            )
+          );
+
+        const cashCollected =
+          closedOrders.reduce(
+            (sum, order) =>
+              sum +
+              safeNumber(
+                order.amount_to_collect ??
+                order.courier_collection_amount
+              ),
+            0
+          );
+
+        const payments =
+          state.courierPayments
+            .filter(
+              payment =>
+                String(payment.courier_id) ===
+                String(courier.id)
+            )
+            .reduce(
+              (sum, payment) =>
+                sum +
+                safeNumber(payment.amount),
+              0
+            );
+
+        return {
+          courier,
+          cashCollected,
+          payments,
+          balance: Math.max(
+            0,
+            cashCollected - payments
+          )
+        };
+      });
+  }
+
   function renderAccounts() {
+    if (isCourier()) {
+      renderCourierAccount();
+      return;
+    }
+
     if (!isFinanceUser()) {
       state.page = "dashboard";
       renderPage();
@@ -9516,11 +9580,11 @@
       "تسويات المندوبين والمصاريف والسجل المالي"
     );
 
-    const courierBalances =
+    const balances =
       buildCourierBalances();
 
     const totalLiability =
-      courierBalances.reduce(
+      balances.reduce(
         (sum, item) =>
           sum + item.balance,
         0
@@ -9547,6 +9611,21 @@
           0
         );
 
+    const companyIncome =
+      state.financialLedger
+        .filter(
+          entry =>
+            entry.entry_type ===
+              "company_delivery_share" &&
+            !entry.is_reversal
+        )
+        .reduce(
+          (sum, entry) =>
+            sum +
+            safeNumber(entry.amount),
+          0
+        );
+
     const content = $("#content");
 
     if (!content) return;
@@ -9560,3 +9639,2805 @@
         )}
 
         ${financeSummaryBox(
+          "المبالغ المستلمة",
+          totalPayments,
+          "إجمالي التسويات المسجلة"
+        )}
+
+        ${financeSummaryBox(
+          "حصة وصلّي",
+          companyIncome,
+          "حصة الشركة من أجور التوصيل"
+        )}
+
+        ${financeSummaryBox(
+          "المصاريف",
+          totalExpenses,
+          "المصاريف الفعالة"
+        )}
+
+        ${financeSummaryBox(
+          "الصافي",
+          companyIncome - totalExpenses,
+          "حصة الشركة بعد المصاريف"
+        )}
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <div>
+            <h2>حسابات المندوبين</h2>
+            <p>
+              تسجيل التسديدات الكاملة أو الجزئية
+            </p>
+          </div>
+        </div>
+
+        ${
+          balances.length
+            ? `
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>المندوب</th>
+                      <th>الكاش المحصل</th>
+                      <th>المسدد</th>
+                      <th>المتبقي</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    ${balances
+                      .map(
+                        item => `
+                          <tr>
+                            <td>
+                              <strong>
+                                ${escapeHTML(
+                                  item.courier.name ||
+                                  "مندوب"
+                                )}
+                              </strong>
+                            </td>
+
+                            <td>
+                              ${money(
+                                item.cashCollected
+                              )}
+                            </td>
+
+                            <td>
+                              ${money(
+                                item.payments
+                              )}
+                            </td>
+
+                            <td>
+                              <strong>
+                                ${money(
+                                  item.balance
+                                )}
+                              </strong>
+                            </td>
+
+                            <td>
+                              <button
+                                type="button"
+                                class="btn btn-primary btn-sm"
+                                data-courier-payment="${item.courier.id}"
+                              >
+                                استلام مبلغ
+                              </button>
+                            </td>
+                          </tr>
+                        `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            `
+            : `
+              <div class="empty-state">
+                لا توجد حسابات مندوبين.
+              </div>
+            `
+        }
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <div>
+            <h2>المصاريف</h2>
+            <p>
+              لا يتم حذف المصروف نهائياً،
+              وإنما يعكس عند التصحيح.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            class="btn btn-primary"
+            id="addExpenseBtn"
+          >
+            + تسجيل مصروف
+          </button>
+        </div>
+
+        ${expensesTable()}
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <div>
+            <h2>آخر التسويات</h2>
+          </div>
+        </div>
+
+        ${courierPaymentsTable()}
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <div>
+            <h2>السجل المالي</h2>
+          </div>
+        </div>
+
+        ${financeLedgerTable(
+          state.financialLedger.slice(
+            0,
+            50
+          )
+        )}
+      </div>
+    `;
+
+    $$("[data-courier-payment]")
+      .forEach(button => {
+        button.onclick = () =>
+          openCourierPaymentModal(
+            button.dataset
+              .courierPayment
+          );
+      });
+
+    $("#addExpenseBtn")
+      ?.addEventListener(
+        "click",
+        openExpenseModal
+      );
+
+    $$("[data-reverse-expense]")
+      .forEach(button => {
+        button.onclick = () =>
+          reverseExpense(
+            button.dataset
+              .reverseExpense
+          );
+      });
+  }
+
+  function renderCourierAccount() {
+    setTitle(
+      "حسابي",
+      "أرباحك وعهدة الكاش"
+    );
+
+    const courier =
+      state.currentCourier;
+
+    const content = $("#content");
+
+    if (!content) return;
+
+    if (!courier) {
+      content.innerHTML = `
+        <div class="card">
+          <div class="empty-state">
+            حسابك غير مربوط بسجل مندوب.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const myOrders =
+      state.orders.filter(
+        order =>
+          String(order.courier_id) ===
+          String(courier.id)
+      );
+
+    const closed =
+      myOrders.filter(order =>
+        ["delivered", "returned"].includes(
+          order.status
+        )
+      );
+
+    const deliveryFees =
+      closed.reduce(
+        (sum, order) =>
+          sum +
+          orderDeliveryFee(order),
+        0
+      );
+
+    const earnings =
+      deliveryFees *
+      (COURIER_PERCENT / 100);
+
+    const collected =
+      closed.reduce(
+        (sum, order) =>
+          sum +
+          safeNumber(
+            order.amount_to_collect ??
+            order.courier_collection_amount
+          ),
+        0
+      );
+
+    const payments =
+      state.courierPayments
+        .filter(
+          payment =>
+            String(payment.courier_id) ===
+            String(courier.id)
+        )
+        .reduce(
+          (sum, payment) =>
+            sum +
+            safeNumber(payment.amount),
+          0
+        );
+
+    const balance =
+      Math.max(
+        0,
+        collected - payments
+      );
+
+    content.innerHTML = `
+      <div class="financial-summary-grid">
+        ${financeSummaryBox(
+          "أرباحي",
+          earnings,
+          `${COURIER_PERCENT}% من أجور التوصيل`
+        )}
+
+        ${financeSummaryBox(
+          "الكاش المحصل",
+          collected,
+          "إجمالي المبالغ المستلمة"
+        )}
+
+        ${financeSummaryBox(
+          "المسدد للشركة",
+          payments,
+          "المبالغ المسلمة"
+        )}
+
+        ${financeSummaryBox(
+          "العهدة الحالية",
+          balance,
+          "المبلغ المتبقي بذمتك"
+        )}
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <h2>طلباتي المكتملة</h2>
+        </div>
+
+        ${
+          closed.length
+            ? `
+              <div class="simple-list">
+                ${closed
+                  .slice(0, 30)
+                  .map(
+                    order => `
+                      <div
+                        class="simple-list-item"
+                      >
+                        <div>
+                          <strong>
+                            ${escapeHTML(
+                              orderCode(order)
+                            )}
+                          </strong>
+
+                          <span>
+                            ${dateTime(
+                              order.delivered_at ||
+                              order.returned_at ||
+                              order.updated_at
+                            )}
+                          </span>
+                        </div>
+
+                        <div>
+                          ${statusBadge(
+                            order.status
+                          )}
+                        </div>
+
+                        <strong>
+                          ${money(
+                            orderDeliveryFee(
+                              order
+                            ) *
+                            (
+                              COURIER_PERCENT /
+                              100
+                            )
+                          )}
+                        </strong>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+            : `
+              <div class="empty-state">
+                لا توجد طلبات مكتملة.
+              </div>
+            `
+        }
+      </div>
+    `;
+  }
+
+  function openCourierPaymentModal(
+    courierId
+  ) {
+    const courier =
+      state.couriers.find(
+        item =>
+          String(item.id) ===
+          String(courierId)
+      );
+
+    if (!courier) return;
+
+    const balanceItem =
+      buildCourierBalances().find(
+        item =>
+          String(
+            item.courier.id
+          ) ===
+          String(courierId)
+      );
+
+    const balance =
+      balanceItem?.balance || 0;
+
+    openModal(`
+      <div class="modal-heading">
+        <div>
+          <h2>استلام مبلغ</h2>
+          <p>
+            ${escapeHTML(
+              courier.name
+            )}
+          </p>
+        </div>
+
+        <button
+          class="icon-btn"
+          data-close
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="card">
+        <small>
+          العهدة الحالية
+        </small>
+
+        <strong
+          style="
+            display:block;
+            font-size:24px;
+            margin-top:5px
+          "
+        >
+          ${money(balance)}
+        </strong>
+      </div>
+
+      <div
+        class="form-grid"
+        style="margin-top:14px"
+      >
+        <div class="field">
+          <label>المبلغ المستلم</label>
+
+          <input
+            id="courierPaymentAmount"
+            type="number"
+            min="1"
+            step="250"
+            value="${balance || ""}"
+          />
+        </div>
+
+        <div class="field">
+          <label>ملاحظات</label>
+
+          <input
+            id="courierPaymentNote"
+            type="text"
+            placeholder="اختياري"
+          />
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button
+          class="btn btn-ghost"
+          data-close
+        >
+          إلغاء
+        </button>
+
+        <button
+          class="btn btn-primary"
+          id="saveCourierPaymentBtn"
+        >
+          تسجيل الاستلام
+        </button>
+      </div>
+    `);
+
+    $("#saveCourierPaymentBtn")
+      ?.addEventListener(
+        "click",
+        () =>
+          receiveCourierPayment(
+            courierId
+          )
+      );
+  }
+
+  async function receiveCourierPayment(
+    courierId
+  ) {
+    const amount =
+      safeNumber(
+        $("#courierPaymentAmount")
+          ?.value
+      );
+
+    const note =
+      $("#courierPaymentNote")
+        ?.value?.trim() ||
+      null;
+
+    if (amount <= 0) {
+      toast(
+        "اكتب مبلغاً صحيحاً.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      const { data, error } =
+        await sb.rpc(
+          "wasalli_receive_courier_payment",
+          {
+            p_courier_id:
+              courierId,
+            p_amount:
+              amount,
+            p_notes:
+              note
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      closeModal();
+
+      await loadAll(false);
+
+      state.page = "accounts";
+      renderPage();
+
+      toast(
+        "تم تسجيل استلام المبلغ."
+      );
+
+      printCourierPaymentReceipt(
+        courierId,
+        amount,
+        note,
+        data
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر تسجيل التسوية: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  function printCourierPaymentReceipt(
+    courierId,
+    amount,
+    note,
+    result
+  ) {
+    const courier =
+      state.couriers.find(
+        item =>
+          String(item.id) ===
+          String(courierId)
+      );
+
+    const transaction =
+      result?.id ||
+      result?.payment_id ||
+      Date.now();
+
+    const receipt = `
+      <html dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>
+            وصل استلام - وصلّي
+          </title>
+
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 30px;
+              direction: rtl;
+            }
+
+            .receipt {
+              max-width: 520px;
+              margin: auto;
+              border: 2px solid #552583;
+              border-radius: 18px;
+              padding: 24px;
+            }
+
+            h1 {
+              color: #552583;
+              margin-top: 0;
+            }
+
+            .row {
+              display: flex;
+              justify-content: space-between;
+              border-bottom: 1px dashed #ccc;
+              padding: 10px 0;
+              gap: 20px;
+            }
+
+            .amount {
+              font-size: 25px;
+              font-weight: 800;
+              color: #552583;
+            }
+
+            small {
+              color: #666;
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="receipt">
+            <h1>وصلّي</h1>
+            <h2>وصل استلام مبلغ</h2>
+
+            <div class="row">
+              <span>المندوب</span>
+              <strong>
+                ${escapeHTML(
+                  courier?.name ||
+                  "—"
+                )}
+              </strong>
+            </div>
+
+            <div class="row">
+              <span>المبلغ</span>
+              <strong class="amount">
+                ${money(amount)}
+              </strong>
+            </div>
+
+            <div class="row">
+              <span>التاريخ</span>
+              <strong>
+                ${dateTime(
+                  new Date()
+                    .toISOString()
+                )}
+              </strong>
+            </div>
+
+            <div class="row">
+              <span>
+                رقم العملية
+              </span>
+
+              <strong>
+                ${escapeHTML(
+                  transaction
+                )}
+              </strong>
+            </div>
+
+            ${
+              note
+                ? `
+                  <div class="row">
+                    <span>
+                      ملاحظات
+                    </span>
+
+                    <strong>
+                      ${escapeHTML(
+                        note
+                      )}
+                    </strong>
+                  </div>
+                `
+                : ""
+            }
+
+            <p>
+              <small>
+                وصل إلكتروني صادر من نظام وصلّي.
+              </small>
+            </p>
+          </div>
+
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          <\/script>
+        </body>
+      </html>
+    `;
+
+    const printWindow =
+      window.open(
+        "",
+        "_blank",
+        "width=700,height=800"
+      );
+
+    if (!printWindow) {
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(
+      receipt
+    );
+    printWindow.document.close();
+  }
+
+  function courierPaymentsTable() {
+    if (
+      !state.courierPayments.length
+    ) {
+      return `
+        <div class="empty-state">
+          لا توجد تسويات مسجلة.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>المندوب</th>
+              <th>المبلغ</th>
+              <th>التاريخ</th>
+              <th>ملاحظات</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${state.courierPayments
+              .slice(0, 50)
+              .map(payment => {
+                const courier =
+                  state.couriers.find(
+                    item =>
+                      String(item.id) ===
+                      String(
+                        payment.courier_id
+                      )
+                  );
+
+                return `
+                  <tr>
+                    <td>
+                      ${escapeHTML(
+                        courier?.name ||
+                        "—"
+                      )}
+                    </td>
+
+                    <td>
+                      <strong>
+                        ${money(
+                          payment.amount
+                        )}
+                      </strong>
+                    </td>
+
+                    <td>
+                      ${dateTime(
+                        payment.created_at
+                      )}
+                    </td>
+
+                    <td>
+                      ${escapeHTML(
+                        payment.notes ||
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function expensesTable() {
+    if (!state.expenses.length) {
+      return `
+        <div class="empty-state">
+          لا توجد مصاريف مسجلة.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>الفئة</th>
+              <th>الوصف</th>
+              <th>المبلغ</th>
+              <th>التاريخ</th>
+              <th>الحالة</th>
+              <th></th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${state.expenses
+              .slice(0, 50)
+              .map(
+                expense => `
+                  <tr>
+                    <td>
+                      ${escapeHTML(
+                        expense.category ||
+                        "أخرى"
+                      )}
+                    </td>
+
+                    <td>
+                      ${escapeHTML(
+                        expense.description ||
+                        "—"
+                      )}
+                    </td>
+
+                    <td>
+                      <strong>
+                        ${money(
+                          expense.amount
+                        )}
+                      </strong>
+                    </td>
+
+                    <td>
+                      ${dateTime(
+                        expense.created_at
+                      )}
+                    </td>
+
+                    <td>
+                      ${
+                        expense.reversed_at
+                          ? `
+                            <span
+                              class="wasalli-badge badge-warning"
+                            >
+                              معكوس
+                            </span>
+                          `
+                          : `
+                            <span
+                              class="wasalli-badge badge-success"
+                            >
+                              فعال
+                            </span>
+                          `
+                      }
+                    </td>
+
+                    <td>
+                      ${
+                        !expense.reversed_at
+                          ? `
+                            <button
+                              class="btn btn-ghost btn-sm"
+                              data-reverse-expense="${expense.id}"
+                            >
+                              عكس
+                            </button>
+                          `
+                          : ""
+                      }
+                    </td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function openExpenseModal() {
+    if (!isFinanceUser()) return;
+
+    openModal(`
+      <div class="modal-heading">
+        <div>
+          <h2>تسجيل مصروف</h2>
+          <p>
+            المصروف يبقى محفوظاً في السجل.
+          </p>
+        </div>
+
+        <button
+          class="icon-btn"
+          data-close
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>الفئة</label>
+
+          <select id="expenseCategory">
+            <option value="fuel">
+              وقود
+            </option>
+
+            <option value="maintenance">
+              صيانة
+            </option>
+
+            <option value="purchases">
+              مشتريات
+            </option>
+
+            <option value="printing">
+              طباعة
+            </option>
+
+            <option value="communications">
+              اتصالات
+            </option>
+
+            <option value="other">
+              أخرى
+            </option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>المبلغ</label>
+
+          <input
+            id="expenseAmount"
+            type="number"
+            min="1"
+            step="250"
+          />
+        </div>
+
+        <div class="field full">
+          <label>الوصف</label>
+
+          <textarea
+            id="expenseDescription"
+            rows="3"
+            placeholder="تفاصيل المصروف..."
+          ></textarea>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button
+          class="btn btn-ghost"
+          data-close
+        >
+          إلغاء
+        </button>
+
+        <button
+          class="btn btn-primary"
+          id="saveExpenseBtn"
+        >
+          حفظ المصروف
+        </button>
+      </div>
+    `);
+
+    $("#saveExpenseBtn")
+      ?.addEventListener(
+        "click",
+        saveExpense
+      );
+  }
+
+  async function saveExpense() {
+    if (!isFinanceUser()) return;
+
+    const amount =
+      safeNumber(
+        $("#expenseAmount")
+          ?.value
+      );
+
+    const category =
+      $("#expenseCategory")
+        ?.value ||
+      "other";
+
+    const description =
+      $("#expenseDescription")
+        ?.value?.trim() ||
+      "";
+
+    if (amount <= 0) {
+      toast(
+        "اكتب مبلغاً صحيحاً.",
+        "warning"
+      );
+      return;
+    }
+
+    if (!description) {
+      toast(
+        "اكتب وصف المصروف.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      const { error } =
+        await sb
+          .from(
+            "wasalli_expenses"
+          )
+          .insert({
+            amount,
+            category,
+            description,
+            created_by:
+              state.session.user.id
+          });
+
+      if (error) {
+        throw error;
+      }
+
+      closeModal();
+
+      await loadAll(false);
+
+      state.page = "accounts";
+      renderPage();
+
+      toast(
+        "تم تسجيل المصروف."
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر تسجيل المصروف: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  async function reverseExpense(
+    expenseId
+  ) {
+    if (!isFinanceUser()) return;
+
+    const reason =
+      window.prompt(
+        "اكتب سبب عكس المصروف:"
+      );
+
+    if (!reason?.trim()) {
+      return;
+    }
+
+    const confirmed =
+      await confirmAction(
+        "سيبقى المصروف الأصلي محفوظاً ويُعلّم كمعكوس. متابعة؟",
+        "عكس المصروف"
+      );
+
+    if (!confirmed) return;
+
+    try {
+      const { error } =
+        await sb
+          .from(
+            "wasalli_expenses"
+          )
+          .update({
+            reversed_at:
+              new Date()
+                .toISOString(),
+            reversed_by:
+              state.session.user.id,
+            reversal_reason:
+              reason.trim()
+          })
+          .eq(
+            "id",
+            expenseId
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      await loadAll(false);
+
+      state.page = "accounts";
+      renderPage();
+
+      toast(
+        "تم عكس المصروف."
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر عكس المصروف: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  function financeLedgerTable(
+    entries
+  ) {
+    if (!entries?.length) {
+      return `
+        <div class="empty-state">
+          لا توجد حركات مالية.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>النوع</th>
+              <th>المبلغ</th>
+              <th>الوصف</th>
+              <th>التاريخ</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${entries
+              .map(
+                entry => `
+                  <tr>
+                    <td>
+                      ${escapeHTML(
+                        financeEntryLabel(
+                          entry.entry_type
+                        )
+                      )}
+                    </td>
+
+                    <td>
+                      <strong>
+                        ${money(
+                          entry.amount
+                        )}
+                      </strong>
+                    </td>
+
+                    <td>
+                      ${escapeHTML(
+                        entry.description ||
+                        "—"
+                      )}
+                    </td>
+
+                    <td>
+                      ${dateTime(
+                        entry.created_at
+                      )}
+                    </td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function financeEntryLabel(type) {
+    const labels = {
+      courier_delivery_share:
+        "حصة المندوب",
+      company_delivery_share:
+        "حصة وصلّي",
+      courier_payment:
+        "تسديد مندوب",
+      expense:
+        "مصروف",
+      reversal:
+        "عكس مالي"
+    };
+
+    return (
+      labels[type] ||
+      type ||
+      "حركة مالية"
+    );
+  }
+
+  /* =========================================================
+     REPORTS
+     ========================================================= */
+
+  function renderReports() {
+    if (
+      !isAdmin() &&
+      !isFinanceUser()
+    ) {
+      state.page = "dashboard";
+      renderPage();
+      return;
+    }
+
+    setTitle(
+      "التقارير",
+      "ملخص عمليات وصلّي"
+    );
+
+    const delivered =
+      state.orders.filter(
+        order =>
+          order.status === "delivered"
+      );
+
+    const returned =
+      state.orders.filter(
+        order =>
+          order.status === "returned"
+      );
+
+    const cancelled =
+      state.orders.filter(
+        order =>
+          order.status === "cancelled"
+      );
+
+    const totalFees =
+      [...delivered, ...returned]
+        .reduce(
+          (sum, order) =>
+            sum +
+            orderDeliveryFee(order),
+          0
+        );
+
+    const courierShare =
+      totalFees *
+      (COURIER_PERCENT / 100);
+
+    const companyShare =
+      totalFees *
+      (COMPANY_PERCENT / 100);
+
+    const content = $("#content");
+
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="financial-summary-grid">
+        ${financeSummaryBox(
+          "إجمالي الطلبات",
+          state.orders.length,
+          "كل الطلبات المسجلة"
+        )}
+
+        ${financeSummaryBox(
+          "تم التسليم",
+          delivered.length,
+          "طلبات مكتملة"
+        )}
+
+        ${financeSummaryBox(
+          "راجع",
+          returned.length,
+          "طلبات راجعة"
+        )}
+
+        ${financeSummaryBox(
+          "ملغي",
+          cancelled.length,
+          "طلبات ملغاة"
+        )}
+
+        ${financeSummaryBox(
+          "أجور التوصيل",
+          totalFees,
+          "التسليم + الراجع"
+        )}
+
+        ${financeSummaryBox(
+          "حصص المندوبين",
+          courierShare,
+          `${COURIER_PERCENT}%`
+        )}
+
+        ${financeSummaryBox(
+          "حصة وصلّي",
+          companyShare,
+          `${COMPANY_PERCENT}%`
+        )}
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <h2>حالات الطلبات</h2>
+        </div>
+
+        <div class="simple-list">
+          ${[
+            "new",
+            "accepted",
+            "picked_up",
+            "on_the_way",
+            "delivered",
+            "returned",
+            "cancelled"
+          ]
+            .map(status => {
+              const count =
+                state.orders.filter(
+                  order =>
+                    order.status ===
+                    status
+                ).length;
+
+              return `
+                <div
+                  class="simple-list-item"
+                >
+                  <span>
+                    ${statusBadge(
+                      status
+                    )}
+                  </span>
+
+                  <strong>
+                    ${count}
+                  </strong>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <h2>
+            أداء المندوبين
+          </h2>
+        </div>
+
+        ${
+          state.couriers.length
+            ? `
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>المندوب</th>
+                      <th>تسليم</th>
+                      <th>راجع</th>
+                      <th>أجور التوصيل</th>
+                      <th>حصة المندوب</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    ${state.couriers
+                      .filter(
+                        courier =>
+                          !courier.archived_at
+                      )
+                      .map(courier => {
+                        const orders =
+                          state.orders.filter(
+                            order =>
+                              String(
+                                order.courier_id
+                              ) ===
+                              String(
+                                courier.id
+                              )
+                          );
+
+                        const done =
+                          orders.filter(
+                            order =>
+                              order.status ===
+                              "delivered"
+                          );
+
+                        const back =
+                          orders.filter(
+                            order =>
+                              order.status ===
+                              "returned"
+                          );
+
+                        const fees =
+                          [
+                            ...done,
+                            ...back
+                          ].reduce(
+                            (sum, order) =>
+                              sum +
+                              orderDeliveryFee(
+                                order
+                              ),
+                            0
+                          );
+
+                        return `
+                          <tr>
+                            <td>
+                              ${escapeHTML(
+                                courier.name
+                              )}
+                            </td>
+
+                            <td>
+                              ${done.length}
+                            </td>
+
+                            <td>
+                              ${back.length}
+                            </td>
+
+                            <td>
+                              ${money(fees)}
+                            </td>
+
+                            <td>
+                              <strong>
+                                ${money(
+                                  fees *
+                                  (
+                                    COURIER_PERCENT /
+                                    100
+                                  )
+                                )}
+                              </strong>
+                            </td>
+                          </tr>
+                        `;
+                      })
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            `
+            : `
+              <div class="empty-state">
+                لا توجد بيانات.
+              </div>
+            `
+        }
+      </div>
+    `;
+  }
+
+  /* =========================================================
+     USERS / APPROVALS
+     ========================================================= */
+
+  function renderUsers() {
+    if (!isAdmin()) {
+      state.page = "dashboard";
+      renderPage();
+      return;
+    }
+
+    setTitle(
+      "الحسابات والصلاحيات",
+      "مراجعة الحسابات الجديدة وإدارة المستخدمين"
+    );
+
+    const profiles =
+      state.profiles || [];
+
+    const pending =
+      profiles.filter(
+        profile =>
+          profile.role ===
+            "pending" ||
+          profile.requested_role ||
+          profile.is_active === false
+      );
+
+    const active =
+      profiles.filter(
+        profile =>
+          profile.is_active !== false &&
+          profile.role !== "pending"
+      );
+
+    const content = $("#content");
+
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="stats-grid">
+        ${dashboardStat(
+          "⏳",
+          "بانتظار المراجعة",
+          pending.length
+        )}
+
+        ${dashboardStat(
+          "👥",
+          "حسابات فعالة",
+          active.length
+        )}
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2>
+              طلبات التسجيل
+            </h2>
+
+            <p>
+              الموافقة أو الرفض من الإدارة
+            </p>
+          </div>
+        </div>
+
+        ${
+          pending.length
+            ? `
+              <div class="entity-card-grid">
+                ${pending
+                  .map(
+                    profile => `
+                      <article
+                        class="entity-card"
+                      >
+                        <div
+                          class="entity-card-head"
+                        >
+                          <div
+                            class="entity-avatar"
+                          >
+                            👤
+                          </div>
+
+                          <div>
+                            <h3>
+                              ${escapeHTML(
+                                profile.full_name ||
+                                "مستخدم"
+                              )}
+                            </h3>
+
+                            <p>
+                              ${escapeHTML(
+                                profile.phone ||
+                                profile.email ||
+                                "—"
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div
+                          class="entity-info"
+                        >
+                          <div>
+                            <small>
+                              الدور المطلوب
+                            </small>
+
+                            <strong>
+                              ${escapeHTML(
+                                roleLabelSafe(
+                                  profile.requested_role ||
+                                  profile.role
+                                )
+                              )}
+                            </strong>
+                          </div>
+
+                          <div>
+                            <small>
+                              المنطقة
+                            </small>
+
+                            <strong>
+                              ${escapeHTML(
+                                profile.area ||
+                                "—"
+                              )}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div
+                          class="entity-actions"
+                        >
+                          <button
+                            class="btn btn-primary"
+                            data-approve-profile="${profile.id}"
+                          >
+                            موافقة
+                          </button>
+
+                          <button
+                            class="btn btn-danger"
+                            data-reject-profile="${profile.id}"
+                          >
+                            رفض
+                          </button>
+                        </div>
+                      </article>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+            : `
+              <div class="empty-state">
+                لا توجد طلبات تسجيل معلقة.
+              </div>
+            `
+        }
+      </div>
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <div class="card-header">
+          <h2>
+            المستخدمون الفعالون
+          </h2>
+        </div>
+
+        ${
+          active.length
+            ? `
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>الاسم</th>
+                      <th>الهاتف</th>
+                      <th>الدور</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    ${active
+                      .map(
+                        profile => `
+                          <tr>
+                            <td>
+                              <strong>
+                                ${escapeHTML(
+                                  profile.full_name ||
+                                  "—"
+                                )}
+                              </strong>
+                            </td>
+
+                            <td>
+                              ${escapeHTML(
+                                profile.phone ||
+                                profile.email ||
+                                "—"
+                              )}
+                            </td>
+
+                            <td>
+                              ${escapeHTML(
+                                roleLabelSafe(
+                                  profile.role
+                                )
+                              )}
+                            </td>
+
+                            <td>
+                              <span
+                                class="wasalli-badge badge-success"
+                              >
+                                فعال
+                              </span>
+                            </td>
+                          </tr>
+                        `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            `
+            : `
+              <div class="empty-state">
+                لا توجد حسابات فعالة.
+              </div>
+            `
+        }
+      </div>
+    `;
+
+    $$("[data-approve-profile]")
+      .forEach(button => {
+        button.onclick = () =>
+          approveProfile(
+            button.dataset
+              .approveProfile
+          );
+      });
+
+    $$("[data-reject-profile]")
+      .forEach(button => {
+        button.onclick = () =>
+          rejectProfile(
+            button.dataset
+              .rejectProfile
+          );
+      });
+  }
+
+  function roleLabelSafe(role) {
+    const labels = {
+      admin: "الإدارة",
+      operations: "العمليات",
+      accountant: "المحاسب",
+      shop: "محل",
+      courier: "مندوب",
+      customer: "زبون",
+      hotel: "فندق",
+      pending: "قيد المراجعة"
+    };
+
+    return (
+      labels[role] ||
+      role ||
+      "قيد المراجعة"
+    );
+  }
+
+  async function approveProfile(
+    profileId
+  ) {
+    if (!isAdmin()) return;
+
+    const profile =
+      state.profiles.find(
+        item =>
+          String(item.id) ===
+          String(profileId)
+      );
+
+    if (!profile) return;
+
+    const role =
+      profile.requested_role &&
+      profile.requested_role !==
+        "pending"
+        ? profile.requested_role
+        : (
+            profile.role !== "pending"
+              ? profile.role
+              : "courier"
+          );
+
+    const confirmed =
+      await confirmAction(
+        `الموافقة على حساب ${profile.full_name || ""} كـ ${roleLabelSafe(role)}؟`,
+        "موافقة"
+      );
+
+    if (!confirmed) return;
+
+    try {
+      let courierId =
+        profile.courier_id ||
+        null;
+
+      let shopId =
+        profile.shop_id ||
+        null;
+
+      if (
+        role === "courier" &&
+        !courierId
+      ) {
+        const {
+          data: courier,
+          error: courierError
+        } =
+          await sb
+            .from("couriers")
+            .insert({
+              user_id:
+                profile.id,
+              name:
+                profile.full_name ||
+                "مندوب",
+              phone:
+                profile.phone ||
+                null,
+              area:
+                profile.area ||
+                null,
+              vehicle_type:
+                profile.vehicle_type ||
+                null,
+              vehicle_number:
+                profile.vehicle_number ||
+                null,
+              emergency_phone:
+                profile.emergency_phone ||
+                null,
+              status:
+                "unavailable",
+              is_available:
+                false,
+              is_on_shift:
+                false,
+              is_active:
+                true,
+              max_active_orders:
+                DEFAULT_MAX_ACTIVE_ORDERS
+            })
+            .select()
+            .single();
+
+        if (courierError) {
+          throw courierError;
+        }
+
+        courierId =
+          courier.id;
+      }
+
+      if (
+        role === "shop" &&
+        !shopId
+      ) {
+        const {
+          data: shop,
+          error: shopError
+        } =
+          await sb
+            .from("shops")
+            .insert({
+              user_id:
+                profile.id,
+              name:
+                profile.full_name ||
+                "محل",
+              phone:
+                profile.phone ||
+                null,
+              area:
+                profile.area ||
+                null,
+              address:
+                profile.address ||
+                null,
+              is_active:
+                true
+            })
+            .select()
+            .single();
+
+        if (shopError) {
+          throw shopError;
+        }
+
+        shopId = shop.id;
+      }
+
+      const { error } =
+        await sb
+          .from("profiles")
+          .update({
+            role,
+            is_active: true,
+            courier_id:
+              courierId,
+            shop_id:
+              shopId,
+            approved_at:
+              new Date()
+                .toISOString(),
+            approved_by:
+              state.session.user.id,
+            suspended_at:
+              null,
+            suspended_by:
+              null,
+            updated_at:
+              new Date()
+                .toISOString()
+          })
+          .eq(
+            "id",
+            profileId
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      await loadAll(false);
+
+      state.page = "users";
+      renderPage();
+
+      toast(
+        "تم اعتماد الحساب."
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر اعتماد الحساب: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  async function rejectProfile(
+    profileId
+  ) {
+    if (!isAdmin()) return;
+
+    const reason =
+      window.prompt(
+        "اكتب سبب رفض التسجيل:"
+      );
+
+    if (!reason?.trim()) {
+      toast(
+        "سبب الرفض مطلوب.",
+        "warning"
+      );
+      return;
+    }
+
+    const confirmed =
+      await confirmAction(
+        "هل تريد رفض طلب التسجيل؟",
+        "تأكيد الرفض"
+      );
+
+    if (!confirmed) return;
+
+    try {
+      const { error } =
+        await sb
+          .from("profiles")
+          .update({
+            role: "pending",
+            is_active: false,
+            suspended_at:
+              new Date()
+                .toISOString(),
+            suspended_by:
+              state.session.user.id,
+            updated_at:
+              new Date()
+                .toISOString()
+          })
+          .eq(
+            "id",
+            profileId
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      /*
+        نحاول تسجيل سبب الرفض في
+        registration_requests إذا كان
+        هناك سجل لهذا المستخدم.
+      */
+      try {
+        await sb
+          .from(
+            "registration_requests"
+          )
+          .update({
+            status:
+              "rejected",
+            rejection_reason:
+              reason.trim(),
+            reviewed_by:
+              state.session.user.id,
+            reviewed_at:
+              new Date()
+                .toISOString()
+          })
+          .eq(
+            "user_id",
+            profileId
+          );
+      } catch {
+        // يبقى الحساب مرفوضاً حتى
+        // لو لم يوجد سجل registration_requests
+      }
+
+      await loadAll(false);
+
+      state.page = "users";
+      renderPage();
+
+      toast(
+        "تم رفض طلب التسجيل."
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر رفض الحساب: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  /* =========================================================
+     SETTINGS
+     ========================================================= */
+
+  function renderSettings() {
+    setTitle(
+      "الإعدادات",
+      isAdmin()
+        ? "إعدادات نظام وصلّي"
+        : "إعدادات الحساب"
+    );
+
+    const content = $("#content");
+
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2>الحساب</h2>
+
+            <p>
+              ${escapeHTML(
+                state.profile?.full_name ||
+                ""
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div class="order-detail-grid">
+          <div class="detail-box">
+            <small>الاسم</small>
+
+            <strong>
+              ${escapeHTML(
+                state.profile?.full_name ||
+                "—"
+              )}
+            </strong>
+          </div>
+
+          <div class="detail-box">
+            <small>الدور</small>
+
+            <strong>
+              ${escapeHTML(
+                roleLabelSafe(
+                  state.profile?.role
+                )
+              )}
+            </strong>
+          </div>
+
+          <div class="detail-box">
+            <small>الهاتف</small>
+
+            <strong>
+              ${escapeHTML(
+                state.profile?.phone ||
+                "—"
+              )}
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      ${
+        isAdmin()
+          ? `
+            <div
+              class="card"
+              style="margin-top:15px"
+            >
+              <div class="card-header">
+                <div>
+                  <h2>
+                    إعدادات التشغيل
+                  </h2>
+
+                  <p>
+                    القيم العامة للنظام
+                  </p>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="field">
+                  <label>
+                    اسم الشركة
+                  </label>
+
+                  <input
+                    id="settingCompanyName"
+                    value="${escapeHTML(
+                      state.settings
+                        ?.company_name ||
+                      APP_NAME ||
+                      "وصلّي"
+                    )}"
+                  />
+                </div>
+
+                <div class="field">
+                  <label>
+                    المدينة
+                  </label>
+
+                  <input
+                    id="settingCity"
+                    value="${escapeHTML(
+                      state.settings
+                        ?.city ||
+                      CITY
+                    )}"
+                  />
+                </div>
+
+                <div class="field">
+                  <label>
+                    أجرة التوصيل الافتراضية
+                  </label>
+
+                  <input
+                    id="settingDefaultFee"
+                    type="number"
+                    min="0"
+                    value="${safeNumber(
+                      state.settings
+                        ?.default_delivery_fee ||
+                      DEFAULT_DELIVERY_FEE
+                    )}"
+                  />
+                </div>
+
+                <div class="field">
+                  <label>
+                    نسبة المندوب %
+                  </label>
+
+                  <input
+                    id="settingCourierPercent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value="${COURIER_PERCENT}"
+                  />
+                </div>
+
+                <div class="field">
+                  <label>
+                    نسبة وصلّي %
+                  </label>
+
+                  <input
+                    id="settingCompanyPercent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value="${COMPANY_PERCENT}"
+                  />
+                </div>
+
+                <div class="field">
+                  <label>
+                    الحد الافتراضي للطلبات النشطة
+                  </label>
+
+                  <input
+                    id="settingMaxOrders"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value="${DEFAULT_MAX_ACTIVE_ORDERS}"
+                  />
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button
+                  class="btn btn-primary"
+                  id="saveSettingsBtn"
+                >
+                  حفظ الإعدادات
+                </button>
+              </div>
+            </div>
+          `
+          : ""
+      }
+
+      <div
+        class="card"
+        style="margin-top:15px"
+      >
+        <button
+          id="settingsLogoutBtn"
+          class="btn btn-danger"
+          style="width:100%"
+        >
+          تسجيل الخروج
+        </button>
+      </div>
+    `;
+
+    $("#saveSettingsBtn")
+      ?.addEventListener(
+        "click",
+        saveSystemSettings
+      );
+
+    $("#settingsLogoutBtn")
+      ?.addEventListener(
+        "click",
+        logout
+      );
+  }
+
+  async function saveSystemSettings() {
+    if (!isAdmin()) return;
+
+    const courierPct =
+      safeNumber(
+        $("#settingCourierPercent")
+          ?.value
+      );
+
+    const companyPct =
+      safeNumber(
+        $("#settingCompanyPercent")
+          ?.value
+      );
+
+    if (
+      courierPct +
+        companyPct !==
+      100
+    ) {
+      toast(
+        "نسبة المندوب + نسبة وصلّي يجب أن تساوي 100%.",
+        "warning"
+      );
+      return;
+    }
+
+    const settings = [
+      {
+        key:
+          "company_name",
+        value:
+          $("#settingCompanyName")
+            ?.value?.trim() ||
+          "وصلّي"
+      },
+      {
+        key:
+          "city",
+        value:
+          $("#settingCity")
+            ?.value?.trim() ||
+          CITY
+      },
+      {
+        key:
+          "default_delivery_fee",
+        value:
+          safeNumber(
+            $("#settingDefaultFee")
+              ?.value
+          )
+      },
+      {
+        key:
+          "courier_percent",
+        value:
+          courierPct
+      },
+      {
+        key:
+          "company_percent",
+        value:
+          companyPct
+      },
+      {
+        key:
+          "default_max_active_orders",
+        value:
+          Math.max(
+            1,
+            safeNumber(
+              $("#settingMaxOrders")
+                ?.value
+            )
+          )
+      }
+    ];
+
+    try {
+      for (
+        const setting of settings
+      ) {
+        const { error } =
+          await sb
+            .from("app_settings")
+            .upsert(
+              {
+                key:
+                  setting.key,
+                value:
+                  setting.value,
+                updated_at:
+                  new Date()
+                    .toISOString()
+              },
+              {
+                onConflict: "key"
+              }
+            );
+
+        if (error) {
+          throw error;
+        }
+      }
+
+      await loadAll(false);
+
+      state.page = "settings";
+      renderPage();
+
+      toast(
+        "تم حفظ الإعدادات."
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast(
+        "تعذر حفظ الإعدادات: " +
+          error.message,
+        "error"
+      );
+    }
+  }
+
+  /* =========================================================
+     NOTIFICATIONS
+     ========================================================= */
+
+  async function loadNotificationCount() {
+    const badge =
+      $("#notificationBadge");
+
+    if (!badge) return;
+
+    if (!isAdminOrOperations()) {
+      badge.classList.add(
+        "hidden"
+      );
+      return;
+    }
+
+    try {
+      const { data, error } =
+        await sb
+          .from("notifications")
+          .select("*")
+          .order(
+            "created_at",
+            {
+              ascending: false
+            }
+          )
+          .limit(50);
+
+      if (error) {
+        throw error;
+      }
+
+      state.notifications =
+        data || [];
+
+      const unread =
+        state.notifications.filter(
+          item =>
+            !item.is_read
+        ).length;
+
+      badge.textContent =
+        unread;
+
+      badge.classList.toggle(
+        "hidden",
+        unread === 0
+      );
+    } catch (error) {
+      console.warn(error);
+
+      badge.classList.add(
+        "hidden"
+      );
+    }
+  }
+
+  async function openNotifications() {
+    if (!isAdminOrOperations()) {
+      toast(
+        "الإشعارات التشغيلية للإدارة والعمليات.",
+        "warning"
+      );
+      return;
+    }
+
+    await loadNotificationCount();
+
+    openModal(`
+      <div class="modal-heading">
+        <div>
+          <h2>الإشعارات</h2>
+
+          <p>
+            آخر إشعارات التشغيل
+          </p>
+        </div>
+
+        <button
+          class="icon-btn"
+          data-close
+        >
+          ×
+        </button>
+      </div>
+
+      ${
+        state.notifications
+          ?.length
+          ? `
+            <div class="simple-list">
+              ${state.notifications
+                .map(
+                  item => `
+                    <div
+                      class="simple-list-item ${
+                        !item.is_read
+                          ? "notification-unread"
+                          : ""
+                      }"
+                    >
+                      <div>
+                        <strong>
+                          ${escapeHTML(
+                            item.title ||
+                            "إشعار"
+                          )}
+                        </strong>
+
+                        <span>
+                          ${escapeHTML(
+                            item.message ||
+                            ""
+                          )}
+                        </span>
+                      </div>
+
+                      <small>
+                        ${dateTime(
+                          item.created_at
+                        )}
+                      </small>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : `
+            <div class="empty-state">
+              لا توجد إشعارات.
+            </div>
+          `
+      }
+    `);
+
+    try {
+      const unreadIds =
+        (state.notifications || [])
+          .filter(
+            item =>
+              !item.is_read
+          )
+          .map(
+            item => item.id
+          );
+
+      if (unreadIds.length) {
+        await sb
+          .from("notifications")
+          .update({
+            is_read: true
+          })
+          .in(
+            "id",
+            unreadIds
+          );
+
+        await loadNotificationCount();
+      }
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  /* =========================================================
+     FINAL PAGE ROUTER
+     ========================================================= */
+
+  function renderPage() {
+    buildNav();
+
+    switch (state.page) {
+      case "orders":
+        renderOrders();
+        break;
+
+      case "shops":
+        renderShops();
+        break;
+
+      case "couriers":
+        renderCouriers();
+        break;
+
+      case "map":
+        renderMap();
+        break;
+
+      case "accounts":
+        renderAccounts();
+        break;
+
+      case "reports":
+        renderReports();
+        break;
+
+      case "users":
+        renderUsers();
+        break;
+
+      case "settings":
+        renderSettings();
+        break;
+
+      default:
+        renderDashboard();
+        break;
+    }
+  }
+
+  /* =========================================================
+     FINAL STATIC EVENTS
+     ========================================================= */
+
+  function bindStaticEvents() {
+    $("#loginForm")
+      ?.addEventListener(
+        "submit",
+        login
+      );
+
+    $("#signupForm")
+      ?.addEventListener(
+        "submit",
+        signup
+      );
+
+    $("#signupType")
+      ?.addEventListener(
+        "change",
+        toggleSignupFields
+      );
+
+    $("#legacyLoginBtn")
+      ?.addEventListener(
+        "click",
+        legacyEmailLogin
+      );
+
+    $("#pendingLogout")
+      ?.addEventListener(
+        "click",
+        logout
+      );
+
+    $("#logoutBtn")
+      ?.addEventListener(
+        "click",
+        logout
+      );
+
+    $("#menuToggle")
+      ?.addEventListener(
+        "click",
+        openSidebar
+      );
+
+    $("#sidebarBackdrop")
+      ?.addEventListener(
+        "click",
+        closeSidebar
+      );
+
+    $("#refreshBtn")
+      ?.addEventListener(
+        "click",
+        async () => {
+          await loadAll(true);
+          renderPage();
+        }
+      );
+
+    $("#notificationBtn")
+      ?.addEventListener(
+        "click",
+        openNotifications
+      );
+
+    $$(".auth-tab")
+      .forEach(button => {
+        button.addEventListener(
+          "click",
+          () => {
+            $$(".auth-tab")
+              .forEach(tab =>
+                tab.classList.remove(
+                  "active"
+                )
+              );
+
+            button.classList.add(
+              "active"
+            );
+
+            const loginMode =
+              button.dataset
+                .authTab ===
+              "login";
+
+            $("#loginForm")
+              ?.classList.toggle(
+                "hidden",
+                !loginMode
+              );
+
+            $("#signupForm")
+              ?.classList.toggle(
+                "hidden",
+                loginMode
+              );
+
+            if (
+              $("#authMessage")
+            ) {
+              $("#authMessage")
+                .textContent = "";
+            }
+          }
+        );
+      });
+
+    window.addEventListener(
+      "resize",
+      () => {
+        if (
+          window.innerWidth >
+          900
+        ) {
+          closeSidebar();
+        }
+
+        state.map
+          ?.invalidateSize?.();
+      }
+    );
+  }
+
+  /* =========================================================
+     BOOT
+     ========================================================= */
+
+  async function boot() {
+    bindStaticEvents();
+
+    try {
+      if (
+        typeof populateSignupAreas ===
+        "function"
+      ) {
+        populateSignupAreas();
+      }
+
+      const {
+        data: { session }
+      } =
+        await sb.auth.getSession();
+
+      if (session) {
+        await enterSession(
+          session
+        );
+      } else {
+        showAuth();
+      }
+
+      sb.auth.onAuthStateChange(
+        (event, session) => {
+          if (
+            event ===
+            "SIGNED_OUT"
+          ) {
+            stopRealtime?.();
+
+            state.session = null;
+            state.profile = null;
+            state.currentCourier =
+              null;
+            state.orderOffers = [];
+
+            showAuth();
+          }
+
+          if (
+            event ===
+              "SIGNED_IN" &&
+            session &&
+            !state.session
+          ) {
+            enterSession(
+              session
+            );
+          }
+        }
+      );
+    } catch (error) {
+      console.error(error);
+
+      showAuth();
+
+      toast(
+        "حدث خطأ أثناء تشغيل النظام.",
+        "error"
+      );
+    }
+  }
+
+  boot();
+
+})();
