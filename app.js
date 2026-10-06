@@ -1148,17 +1148,10 @@
       ?.classList.remove("hidden");
   }
 
-  function showApp() {
-    $("#authScreen")
-      ?.classList.add("hidden");
-
-    $("#pendingScreen")
-      ?.classList.add("hidden");
-
-    $("#appScreen")
-      ?.classList.remove("hidden");
-  }
-
+ function showApp() {
+  $("#authView")?.classList.add("hidden");
+  $("#appView")?.classList.remove("hidden");
+}
   /* =========================================================
      AUTH
      ========================================================= */
