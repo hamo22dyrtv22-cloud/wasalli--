@@ -1122,21 +1122,16 @@
      AUTH SCREEN
      ========================================================= */
 
-  function showAuth() {
-    stopRealtime();
-    stopOfferSound();
-    stopDispatchTimer();
-    stopLocationTracking();
+ function showAuth() {
+  stopRealtime?.();
+  stopOfferSound?.();
+  stopDispatchTimer?.();
+  stopLocationTracking?.();
 
-    $("#authScreen")
-      ?.classList.remove("hidden");
-
-    $("#appScreen")
-      ?.classList.add("hidden");
-
-    $("#pendingScreen")
-      ?.classList.add("hidden");
-  }
+  $("#authView")?.classList.remove("hidden");
+  $("#appView")?.classList.add("hidden");
+  $("#pendingScreen")?.classList.add("hidden");
+}
 
   function showPending() {
     $("#authScreen")
