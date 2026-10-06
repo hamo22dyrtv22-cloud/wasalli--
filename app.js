@@ -1526,23 +1526,28 @@ console.log("LOGIN FINISHED", { data, error });
       return;
     }
 
-    showApp();
+console.log("1 BEFORE SHOWAPP");
+showApp();
+console.log("2 AFTER SHOWAPP");
 
-    if (isCourier()) {
-      state.page = "dashboard";
-    } else if (isAccountant()) {
-      state.page = "dashboard";
-    } else {
-      state.page = "dashboard";
-    }
+if (isCourier()) {
+  state.page = "dashboard";
+} else if (isAccountant()) {
+  state.page = "dashboard";
+} else {
+  state.page = "dashboard";
+}
 
-    updateUserHeader();
+updateUserHeader();
+console.log("3 AFTER HEADER");
 
-    renderNavigation();
+renderNavigation();
+console.log("4 AFTER NAVIGATION");
 
-    await loadAll();
+await loadAll();
+console.log("5 AFTER LOADALL");
 
-    startRealtime();
+startRealtime();
 
     if (isAdminOrOperations()) {
       startDispatchTimer();
