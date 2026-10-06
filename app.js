@@ -1134,14 +1134,9 @@
 }
 
   function showPending() {
-    $("#authScreen")
-      ?.classList.add("hidden");
-
-    $("#appScreen")
-      ?.classList.add("hidden");
-
-    $("#pendingScreen")
-      ?.classList.remove("hidden");
+    $("#authView")?.classList.add("hidden");
+    $("#appView")?.classList.add("hidden");
+    $("#pendingScreen")?.classList.remove("hidden");
   }
 
  function showApp() {
@@ -1207,7 +1202,7 @@ async function login(event) {
         email,
         password
       });
-console.log("LOGIN FINISHED", { data, error });
+
     if (error) {
       console.error("Login error:", error);
 
@@ -1515,9 +1510,9 @@ console.log("LOGIN FINISHED", { data, error });
       return;
     }
 
-console.log("1 BEFORE SHOWAPP");
+
 showApp();
-console.log("2 AFTER SHOWAPP");
+
 
 if (isCourier()) {
   state.page = "dashboard";
@@ -1528,13 +1523,13 @@ if (isCourier()) {
 }
 
 updateUserHeader();
-console.log("3 AFTER HEADER");
+
 
 renderNavigation();
-console.log("4 AFTER NAVIGATION");
+
 
 await loadAll();
-console.log("5 AFTER LOADALL");
+
 
 startRealtime();
 
@@ -1582,11 +1577,15 @@ startRealtime();
     stopDispatchTimer();
     stopLocationTracking();
 
-    await sb.auth.signOut();
-
-    resetState();
-
-    showAuth();
+    try {
+      const { error } = await sb.auth.signOut();
+      if (error) console.warn("Sign out warning:", error);
+    } catch (error) {
+      console.warn("Sign out exception:", error);
+    } finally {
+      resetState();
+      showAuth();
+    }
   }
 
   function resetState() {
@@ -12353,6 +12352,7 @@ startRealtime();
      ========================================================= */
 
   async function boot() {
+    injectWasalliEnhancements();
     bindStaticEvents();
 
     try {
@@ -12418,15 +12418,7 @@ startRealtime();
       );
     }
   }
-const loginFormFix = document.getElementById("loginForm");
-
-if (loginFormFix) {
-  loginFormFix.onsubmit = async function (event) {
-    event.preventDefault();
-    await login(event);
-  };
-}
-  
   boot();
 
+  
 })();
