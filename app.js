@@ -12454,7 +12454,15 @@ async function legacyEmailLogin() {
       );
     }
   }
+const loginFormFix = document.getElementById("loginForm");
 
+if (loginFormFix) {
+  loginFormFix.onsubmit = async function (event) {
+    event.preventDefault();
+    await login(event);
+  };
+}
+  
   boot();
 
 })();
