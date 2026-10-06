@@ -95,16 +95,15 @@
         <div class="field">
 
           <label for="loginIdentifier">
-            رقم الهاتف
+              رقم الهاتف او البريد الالكتروني
           </label>
 
           <input
             id="loginIdentifier"
             name="loginIdentifier"
             type="text"
-            inputmode="tel"
-            autocomplete="username"
-            placeholder="مثال: 0780 000 0000"
+           inputmode="text"
+placeholder="07XXXXXXXXX أو name@example.com""
             required
           >
 
@@ -138,68 +137,8 @@
 
 
         <p class="auth-note">
-          الدخول الأساسي برقم الهاتف.
-        </p>
-
-
-        <!--
-          هذا الجزء يحافظ على إمكانية دخول حساب الإدارة القديم
-          بالبريد الإلكتروني أثناء الانتقال إلى نظام الهاتف.
-        -->
-        <details class="legacy-login">
-
-          <summary>
-            دخول الإدارة القديم بالبريد الإلكتروني
-          </summary>
-
-          <div class="legacy-login-fields">
-
-            <div class="field">
-
-              <label for="adminEmail">
-                البريد الإلكتروني
-              </label>
-
-              <input
-                id="adminEmail"
-                name="adminEmail"
-                type="email"
-                autocomplete="email"
-                placeholder="admin@example.com"
-              >
-
-            </div>
-
-
-            <div class="field">
-
-              <label for="adminEmailPassword">
-                كلمة المرور
-              </label>
-
-              <input
-                id="adminEmailPassword"
-                name="adminEmailPassword"
-                type="password"
-                autocomplete="current-password"
-                placeholder="كلمة المرور"
-              >
-
-            </div>
-
-
-            <button
-              id="legacyLoginBtn"
-              class="btn btn-ghost btn-block"
-              type="button"
-            >
-              دخول الإدارة بالبريد
-            </button>
-
-          </div>
-
-        </details>
-
+  يمكنك تسجيل الدخول برقم الهاتف أو البريد الإلكتروني.
+</p>
       </form>
 
 
