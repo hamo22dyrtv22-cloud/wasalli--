@@ -429,46 +429,52 @@
     ]
   };
 
+  function ensureNavigationHost() {
+    let nav = $("#navList");
+    if (nav) return nav;
+
+    const sidebar = $("#sidebar");
+    if (!sidebar) return null;
+
+    nav = document.createElement("nav");
+    nav.id = "navList";
+    nav.className = "nav-list";
+
+    const logoutButton = $("#logoutBtn");
+    const footer =
+      sidebar.querySelector(".sidebar-footer, .sidebar-user, .user-card") ||
+      logoutButton?.parentElement ||
+      null;
+
+    if (footer && footer.parentElement === sidebar) {
+      sidebar.insertBefore(nav, footer);
+    } else {
+      sidebar.appendChild(nav);
+    }
+
+    return nav;
+  }
+
   function renderNavigation() {
-  
-    const nav = $("#navList");
+    const nav = ensureNavigationHost();
     if (!nav) return;
 
-    const items =
-      NAV[currentRole()] ||
-      NAV.courier;
+    const role = currentRole();
+    const items = NAV[role] || [];
 
-    nav.innerHTML = items
-      .map(
-        ([page, icon, label]) => `
-          <button
-            type="button"
-            class="nav-item ${
-              state.page === page
-                ? "active"
-                : ""
-            }"
-            data-page="${escapeHTML(page)}"
-          >
-            <span class="nav-icon">${icon}</span>
-            <span>${escapeHTML(label)}</span>
-          </button>
-        `
-      )
-      .join("");
+    nav.innerHTML = items.map(([page, icon, label]) => `
+      <button type="button" class="nav-item ${state.page === page ? "active" : ""}" data-page="${escapeHTML(page)}">
+        <span class="nav-icon">${icon}</span>
+        <span>${escapeHTML(label)}</span>
+      </button>
+    `).join("");
 
-    $$("[data-page]").forEach(button => {
-      button.addEventListener(
-        "click",
-        () => {
-          state.page =
-            button.dataset.page;
-
-          closeSidebar();
-          renderNavigation();
-          renderPage();
-        }
-      );
+    nav.querySelectorAll("[data-page]").forEach(button => {
+      button.addEventListener("click", () => {
+        state.page = button.dataset.page;
+        closeSidebar();
+        renderPage();
+      });
     });
   }
 
@@ -1133,16 +1139,18 @@
   $("#pendingScreen")?.classList.add("hidden");
 }
 
-  function showPending() {
-    $("#authView")?.classList.add("hidden");
-    $("#appView")?.classList.add("hidden");
-    $("#pendingScreen")?.classList.remove("hidden");
-  }
-
- function showApp() {
+function showPending() {
   $("#authView")?.classList.add("hidden");
+  $("#appView")?.classList.add("hidden");
+  $("#pendingScreen")?.classList.remove("hidden");
+}
+
+function showApp() {
+  $("#authView")?.classList.add("hidden");
+  $("#pendingScreen")?.classList.add("hidden");
   $("#appView")?.classList.remove("hidden");
 }
+
   /* =========================================================
      AUTH
      ========================================================= */
@@ -1510,26 +1518,11 @@ async function login(event) {
       return;
     }
 
-
 showApp();
-
-
-if (isCourier()) {
-  state.page = "dashboard";
-} else if (isAccountant()) {
-  state.page = "dashboard";
-} else {
-  state.page = "dashboard";
-}
-
+state.page = "dashboard";
 updateUserHeader();
-
-
 renderNavigation();
-
-
 await loadAll();
-
 
 startRealtime();
 
@@ -1572,16 +1565,15 @@ startRealtime();
   }
 
   async function logout() {
-    stopRealtime();
-    stopOfferSound();
-    stopDispatchTimer();
-    stopLocationTracking();
+    stopRealtime?.();
+    stopOfferSound?.();
+    stopDispatchTimer?.();
+    stopLocationTracking?.();
 
     try {
-      const { error } = await sb.auth.signOut();
-      if (error) console.warn("Sign out warning:", error);
+      await sb.auth.signOut();
     } catch (error) {
-      console.warn("Sign out exception:", error);
+      console.warn("Sign out error:", error);
     } finally {
       resetState();
       showAuth();
@@ -12186,41 +12178,23 @@ startRealtime();
      ========================================================= */
 
   function renderPage() {
+    if (!state.profile || !isActiveProfile()) return;
+
+    renderNavigation();
 
     switch (state.page) {
-      case "orders":
-        renderOrders();
-        break;
-
-      case "shops":
-        renderShops();
-        break;
-
-      case "couriers":
-        renderCouriers();
-        break;
-
-      case "map":
-        renderMap();
-        break;
-
-      case "accounts":
-        renderAccounts();
-        break;
-
-      case "reports":
-        renderReports();
-        break;
-
-      case "users":
-        renderUsers();
-        break;
-
-      case "settings":
-        renderSettings();
-        break;
-
+      case "dashboard": renderDashboard(); break;
+      case "orders": renderOrders(); break;
+      case "shops": renderShops(); break;
+      case "couriers": renderCouriers(); break;
+      case "map": renderMap(); break;
+      case "pricing": renderPricing(); break;
+      case "accounts": renderAccounts(); break;
+      case "reports": renderReports(); break;
+      case "users": renderUsers(); break;
+      case "settings": renderSettings(); break;
       default:
+        state.page = "dashboard";
         renderDashboard();
         break;
     }
@@ -12352,7 +12326,6 @@ startRealtime();
      ========================================================= */
 
   async function boot() {
-    injectWasalliEnhancements();
     bindStaticEvents();
 
     try {
@@ -12378,8 +12351,7 @@ startRealtime();
 
       sb.auth.onAuthStateChange(
         (event, session) => {
-          console.log("AUTH EVENT:", event, "SESSION:", !!session);
-          
+
           if (
             event ===
             "SIGNED_OUT"
