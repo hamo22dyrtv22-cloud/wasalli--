@@ -430,7 +430,7 @@
   };
 
   function renderNavigation() {
-    alert("ROLE = " + currentRole());
+  
     const nav = $("#navList");
     if (!nav) return;
 
