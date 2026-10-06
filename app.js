@@ -12392,5 +12392,4 @@ startRealtime();
   }
   boot();
 
-  
 })();
