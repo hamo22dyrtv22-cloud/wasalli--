@@ -1162,7 +1162,14 @@
   /* =========================================================
      AUTH
      ========================================================= */
-
+function setAuthMessage(message) {
+  const el = document.getElementById("authMessage");
+  if (el) {
+    el.textContent = message;
+  } else {
+    console.log(message);
+  }
+}
 async function login(event) {
   event?.preventDefault();
 
