@@ -1163,63 +1163,71 @@
      AUTH
      ========================================================= */
 
-  async function login(event) {
-    event?.preventDefault();
+ async function login(event) {
+  event?.preventDefault();
 
-    const input =
-      $("#loginEmail")?.value?.trim() ||
-      $("#loginPhone")?.value?.trim() ||
-      "";
+  const input =
+    $("#loginEmail")?.value?.trim() ||
+    $("#loginPhone")?.value?.trim() ||
+    "";
 
-    const password =
-      $("#loginPassword")?.value || "";
+  const password =
+    $("#loginPassword")?.value || "";
 
-    if (!input || !password) {
-      setAuthMessage(
-        "اكتب رقم الهاتف وكلمة المرور."
-      );
-      return;
-    }
-
-    let email = input;
-
-    if (!input.includes("@")) {
-      const phone =
-        normalizeIraqiPhone(input);
-
-      if (!phone) {
-        setAuthMessage(
-          "رقم الهاتف غير صحيح."
-        );
-        return;
-      }
-
-      email = phoneEmail(phone);
-    }
-
+  if (!input || !password) {
     setAuthMessage(
-      "جاري تسجيل الدخول..."
+      "اكتب رقم الهاتف أو البريد الإلكتروني وكلمة المرور."
     );
-
-    const { data, error } =
-      await sb.auth.signInWithPassword({
-        email,
-        password
-      });
-
-    if (error) {
-      console.error(error);
-
-      setAuthMessage(
-        "تعذر تسجيل الدخول. تأكد من رقم الهاتف وكلمة المرور."
-      );
-
-      return;
-    }
-
-    await enterSession(data.session);
+    return;
   }
 
+  let email;
+
+  // إذا المستخدم كتب بريداً إلكترونياً، استخدمه مباشرة
+  if (input.includes("@")) {
+    email = input.trim().toLowerCase();
+  } else {
+    // إذا كتب رقم هاتف، حوّله إلى حساب الهاتف
+    const phone = normalizeIraqiPhone(input);
+
+    if (!phone) {
+      setAuthMessage(
+        "رقم الهاتف غير صحيح."
+      );
+      return;
+    }
+
+    email = phoneEmail(phone);
+  }
+
+  setAuthMessage("جاري تسجيل الدخول...");
+
+  const { data, error } =
+    await sb.auth.signInWithPassword({
+      email,
+      password
+    });
+
+  if (error) {
+    console.error("Login error:", error);
+
+    setAuthMessage(
+      "تعذر تسجيل الدخول. تأكد من البريد الإلكتروني أو رقم الهاتف وكلمة المرور."
+    );
+    return;
+  }
+
+  if (!data?.session) {
+    setAuthMessage(
+      "تعذر إنشاء جلسة تسجيل الدخول."
+    );
+    return;
+  }
+
+  setAuthMessage("");
+
+  await enterSession(data.session);
+}
   async function legacyEmailLogin() {
     const email =
       prompt("اكتب البريد الإلكتروني:");
