@@ -12248,13 +12248,7 @@ async function login(event) {
         "change",
         toggleSignupFields
       );
-
-    $("#legacyLoginBtn")
-      ?.addEventListener(
-        "click",
-        legacyEmailLogin
-      );
-
+    
     $("#pendingLogout")
       ?.addEventListener(
         "click",
