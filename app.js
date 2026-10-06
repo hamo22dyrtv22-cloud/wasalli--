@@ -1218,7 +1218,7 @@ async function login(event) {
         email,
         password
       });
-
+console.log("LOGIN FINISHED", { data, error });
     if (error) {
       console.error("Login error:", error);
 
