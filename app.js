@@ -1163,10 +1163,11 @@
      AUTH
      ========================================================= */
 
- async function login(event) {
+async function login(event) {
   event?.preventDefault();
 
   const input =
+    $("#loginIdentifier")?.value?.trim() ||
     $("#loginEmail")?.value?.trim() ||
     $("#loginPhone")?.value?.trim() ||
     "";
@@ -1181,18 +1182,20 @@
     return;
   }
 
-  let email;
+  let email = "";
 
-  // إذا المستخدم كتب بريداً إلكترونياً، استخدمه مباشرة
+  // تسجيل الدخول بالبريد الإلكتروني
   if (input.includes("@")) {
-    email = input.trim().toLowerCase();
-  } else {
-    // إذا كتب رقم هاتف، حوّله إلى حساب الهاتف
+    email = input.toLowerCase();
+  }
+
+  // تسجيل الدخول برقم الهاتف
+  else {
     const phone = normalizeIraqiPhone(input);
 
     if (!phone) {
       setAuthMessage(
-        "رقم الهاتف غير صحيح."
+        "رقم الهاتف غير صحيح. اكتب رقم عراقي صحيح أو استخدم البريد الإلكتروني."
       );
       return;
     }
@@ -1202,80 +1205,44 @@
 
   setAuthMessage("جاري تسجيل الدخول...");
 
-  const { data, error } =
-    await sb.auth.signInWithPassword({
-      email,
-      password
-    });
+  try {
+    const { data, error } =
+      await sb.auth.signInWithPassword({
+        email,
+        password
+      });
 
-  if (error) {
-    console.error("Login error:", error);
+    if (error) {
+      console.error("Login error:", error);
 
-    setAuthMessage(
-      "تعذر تسجيل الدخول. تأكد من البريد الإلكتروني أو رقم الهاتف وكلمة المرور."
-    );
-    return;
-  }
-
-  if (!data?.session) {
-    setAuthMessage(
-      "تعذر إنشاء جلسة تسجيل الدخول."
-    );
-    return;
-  }
-
-  setAuthMessage("");
-
-  await enterSession(data.session);
-}
-async function legacyEmailLogin() {
-  const email =
-    $("#loginEmail")?.value?.trim() || "";
-
-  const password =
-    $("#loginPassword")?.value || "";
-
-  if (!email || !password) {
-    setAuthMessage(
-      "اكتب البريد الإلكتروني وكلمة المرور في خانات تسجيل الدخول."
-    );
-    return;
-  }
-
-  setAuthMessage("جاري تسجيل الدخول...");
-
-  const { data, error } =
-    await sb.auth.signInWithPassword({
-      email: email.toLowerCase(),
-      password
-    });
-
-  if (error) {
-    console.error("Legacy login error:", error);
-
-    setAuthMessage(
-      "تعذر تسجيل الدخول. تأكد من البريد الإلكتروني وكلمة المرور."
-    );
-    return;
-  }
-
-  if (!data?.session) {
-    setAuthMessage("تعذر إنشاء جلسة تسجيل الدخول.");
-    return;
-  }
-
-  setAuthMessage("");
-  await enterSession(data.session);
-}
-
-  function setAuthMessage(message) {
-    const el = $("#authMessage");
-
-    if (el) {
-      el.textContent = message;
+      setAuthMessage(
+        "تعذر تسجيل الدخول. تأكد من رقم الهاتف أو البريد الإلكتروني وكلمة المرور."
+      );
+      return;
     }
-  }
 
+    if (!data?.session) {
+      setAuthMessage(
+        "تعذر إنشاء جلسة تسجيل الدخول."
+      );
+      return;
+    }
+
+    setAuthMessage("");
+
+    await enterSession(data.session);
+
+  } catch (error) {
+    console.error(
+      "Login exception:",
+      error
+    );
+
+    setAuthMessage(
+      "حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى."
+    );
+  }
+}
   /* =========================================================
      SIGNUP
      ========================================================= */
