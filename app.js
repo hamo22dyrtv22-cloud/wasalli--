@@ -2,98 +2,39 @@
   "use strict";
 
   /* =========================================================
-     WASALLI DELIVERY MANAGEMENT
-     وصلي - نظام إدارة التوصيل
+     WASALLI — CLEAN REBUILD
+     Self-contained app.js: UI + responsive styles + logic
      ========================================================= */
 
   const CONFIG = window.WASALLI_CONFIG || {};
+  const SUPABASE_URL = CONFIG.SUPABASE_URL || "https://xagwkneegevbllexhvzz.supabase.co";
+  const SUPABASE_KEY = CONFIG.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_8Ni4JHptJSjge_fG0vQVGQ_fcEVXEw7";
 
-  const SUPABASE_URL =
-    CONFIG.SUPABASE_URL ||
-    "https://xagwkneegevbllexhvzz.supabase.co";
+  const DEFAULTS = {
+    appName: CONFIG.APP_NAME || "وصلّي",
+    city: CONFIG.CITY || "كربلاء المقدسة",
+    deliveryFee: Number(CONFIG.DEFAULT_DELIVERY_FEE || 3000),
+    courierPercent: Number(CONFIG.COURIER_PERCENT || 70),
+    companyPercent: Number(CONFIG.COMPANY_PERCENT || 30),
+    maxActiveOrders: Number(CONFIG.DEFAULT_MAX_ACTIVE_ORDERS || 3),
+    pricingA: Number(CONFIG.PRICING?.A || 2000),
+    pricingB: Number(CONFIG.PRICING?.B || 3000),
+    lateOrderMinutes: Number(CONFIG.LATE_ORDER_MINUTES || 5)
+  };
 
-  const SUPABASE_KEY =
-    CONFIG.SUPABASE_PUBLISHABLE_KEY ||
-    "sb_publishable_8Ni4JHptJSjge_fG0vQVGQ_fcEVXEw7";
+  const ACTIVE_STATUSES = ["assigned", "accepted", "picked_up", "on_the_way"];
+  const CLOSED_STATUSES = ["delivered", "returned", "cancelled"];
 
-  if (!window.supabase) {
-    console.error("Supabase library is not loaded.");
-    return;
-  }
-
-  const sb = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_KEY
-  );
-
-  /* =========================================================
-     CONSTANTS
-     ========================================================= */
-
-  const APP_NAME = CONFIG.APP_NAME || "وصلّي";
-  const CITY = CONFIG.CITY || "كربلاء المقدسة";
-
-  const DEFAULT_DELIVERY_FEE =
-    Number(CONFIG.DEFAULT_DELIVERY_FEE || 3000);
-
-  const COURIER_PERCENT =
-    Number(CONFIG.COURIER_PERCENT || 70);
-
-  const COMPANY_PERCENT =
-    Number(CONFIG.COMPANY_PERCENT || 30);
-
-  const OFFER_PRIORITY_SECONDS =
-    Number(CONFIG.OFFER_PRIORITY_SECONDS || 60);
-
-  const LATE_ORDER_MINUTES =
-    Number(CONFIG.LATE_ORDER_MINUTES || 5);
-
-  const DEFAULT_MAX_ACTIVE_ORDERS = 3;
-
-  const ACTIVE_ORDER_STATUSES = [
-    "assigned",
-    "accepted",
-    "picked_up",
-    "on_the_way"
-  ];
-
-  const CLOSED_ORDER_STATUSES = [
-    "delivered",
-    "returned",
-    "cancelled"
-  ];
-
-  const ORDER_STATUS_LABELS = {
+  const STATUS_LABELS = {
     new: "طلب جديد",
     assigned: "مُسند",
-    accepted: "تم قبول الطلب",
+    accepted: "مقبول",
     picked_up: "تم الاستلام من المحل",
     on_the_way: "بالطريق",
     road: "بالطريق",
     delivered: "تم التسليم",
     returned: "راجع",
     cancelled: "ملغي"
-  };
-
-  const PAYMENT_LABELS = {
-    cash: "نقداً عند الاستلام",
-    cod: "نقداً عند الاستلام",
-    prepaid: "مدفوع مسبقاً",
-    electronic: "دفع إلكتروني",
-    shop_account: "على حساب المحل"
-  };
-
-  const DELIVERY_PAYER_LABELS = {
-    customer: "الزبون",
-    shop: "المحل",
-    split: "مشترك"
-  };
-
-  const REJECTION_LABELS = {
-    far: "المكان بعيد",
-    busy: "مشغول حالياً",
-    bike_issue: "عطل بالمركبة",
-    other: "سبب آخر"
   };
 
   const ROLE_LABELS = {
@@ -106,280 +47,6 @@
     hotel: "الفندق",
     pending: "بانتظار الموافقة"
   };
-
-  /* =========================================================
-     STATE
-     ========================================================= */
-
-  const state = {
-    session: null,
-    profile: null,
-
-    page: "dashboard",
-
-    orders: [],
-    shops: [],
-    couriers: [],
-    profiles: [],
-    settings: {},
-
-    orderOffers: [],
-    currentCourier: null,
-
-    notifications: [],
-
-    financialLedger: [],
-    courierPayments: [],
-    expenses: [],
-
-    map: null,
-    mapMarkers: [],
-
-    realtimeChannel: null,
-
-    offerSoundTimer: null,
-    dispatchTimer: null,
-    locationWatchId: null,
-
-    currentModal: null,
-
-    loading: false
-  };
-
-  /* =========================================================
-     DOM HELPERS
-     ========================================================= */
-
-  const $ = selector =>
-    document.querySelector(selector);
-
-  const $$ = selector =>
-    Array.from(document.querySelectorAll(selector));
-
-  function escapeHTML(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  function safeNumber(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  }
-
-  function money(value) {
-    return new Intl.NumberFormat("ar-IQ").format(
-      safeNumber(value)
-    ) + " د.ع";
-  }
-
-  function dateTime(value) {
-    if (!value) return "—";
-
-    try {
-      return new Intl.DateTimeFormat(
-        "ar-IQ",
-        {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      ).format(new Date(value));
-    } catch {
-      return String(value);
-    }
-  }
-
-  function shortTime(value) {
-    if (!value) return "—";
-
-    try {
-      return new Intl.DateTimeFormat(
-        "ar-IQ",
-        {
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      ).format(new Date(value));
-    } catch {
-      return "";
-    }
-  }
-
-  function orderCode(order) {
-    if (!order) return "—";
-
-    if (order.order_number !== null &&
-        order.order_number !== undefined) {
-      return `W-${order.order_number}`;
-    }
-
-    return String(order.id || "").slice(0, 8);
-  }
-
-  function statusLabel(status) {
-    return ORDER_STATUS_LABELS[status] || status || "—";
-  }
-
-  function paymentLabel(value) {
-    return PAYMENT_LABELS[value] || value || "—";
-  }
-
-  function payerLabel(value) {
-    return DELIVERY_PAYER_LABELS[value] || value || "—";
-  }
-
-  function roleLabel(value) {
-    return ROLE_LABELS[value] || value || "—";
-  }
-
-  function normalizeIraqiPhone(phone) {
-    let value = String(phone || "")
-      .replace(/\D/g, "");
-
-    if (!value) return "";
-
-    if (value.startsWith("00964")) {
-      value = value.slice(2);
-    }
-
-    if (value.startsWith("964")) {
-      return value;
-    }
-
-    if (value.startsWith("0")) {
-      return "964" + value.slice(1);
-    }
-
-    if (value.startsWith("7")) {
-      return "964" + value;
-    }
-
-    return value;
-  }
-
-  function localPhone(phone) {
-    const value = normalizeIraqiPhone(phone);
-
-    if (value.startsWith("964")) {
-      return "0" + value.slice(3);
-    }
-
-    return phone || "";
-  }
-
-  function phoneEmail(phone) {
-    const normalized = normalizeIraqiPhone(phone);
-    return `${normalized}@phone.wasalli.local`;
-  }
-
-  function googleMapsUrl(lat, lng) {
-    if (
-      lat === null ||
-      lat === undefined ||
-      lng === null ||
-      lng === undefined
-    ) {
-      return "";
-    }
-
-    return (
-      "https://www.google.com/maps/search/?api=1&query=" +
-      encodeURIComponent(`${lat},${lng}`)
-    );
-  }
-
-  function wazeUrl(lat, lng) {
-    if (
-      lat === null ||
-      lat === undefined ||
-      lng === null ||
-      lng === undefined
-    ) {
-      return "";
-    }
-
-    return (
-      "https://www.waze.com/ul?ll=" +
-      encodeURIComponent(`${lat},${lng}`) +
-      "&navigate=yes"
-    );
-  }
-
-  function whatsappUrl(phone) {
-    const normalized = normalizeIraqiPhone(phone);
-
-    if (!normalized) return "";
-
-    return `https://wa.me/${normalized}`;
-  }
-
-  function callUrl(phone) {
-    if (!phone) return "";
-    return `tel:${localPhone(phone)}`;
-  }
-
-  function openExternal(url) {
-    if (!url) {
-      toast("المعلومة المطلوبة غير متوفرة.", "warning");
-      return;
-    }
-
-    window.open(
-      url,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  }
-
-  /* =========================================================
-     ROLE HELPERS
-     ========================================================= */
-
-  function currentRole() {
-    return state.profile?.role || "pending";
-  }
-
-  function isAdmin() {
-    return currentRole() === "admin";
-  }
-
-  function isOperations() {
-    return currentRole() === "operations";
-  }
-
-  function isAccountant() {
-    return currentRole() === "accountant";
-  }
-
-  function isCourier() {
-    return currentRole() === "courier";
-  }
-
-  function isShop() {
-    return currentRole() === "shop";
-  }
-
-  function isAdminOrOperations() {
-    return isAdmin() || isOperations();
-  }
-
-  function isFinanceUser() {
-    return isAdmin() || isAccountant();
-  }
-
-  function isActiveProfile() {
-    return Boolean(state.profile?.is_active);
-  }
-
-  /* =========================================================
-     NAVIGATION
-     ========================================================= */
 
   const NAV = {
     admin: [
@@ -394,7 +61,6 @@
       ["users", "👥", "الحسابات والصلاحيات"],
       ["settings", "⚙️", "الإعدادات"]
     ],
-
     operations: [
       ["dashboard", "⌂", "لوحة العمليات"],
       ["orders", "📦", "الطلبات"],
@@ -405,22 +71,19 @@
       ["reports", "📊", "التقارير"],
       ["settings", "⚙️", "الإعدادات"]
     ],
-
     accountant: [
       ["dashboard", "⌂", "الملخص المالي"],
       ["accounts", "💰", "الحسابات"],
       ["reports", "📊", "التقارير"],
       ["settings", "⚙️", "الحساب"]
     ],
-
     shop: [
       ["dashboard", "⌂", "لوحة التحكم"],
       ["orders", "📦", "طلباتي"],
       ["accounts", "💰", "الحساب"],
-      ["reports", "📊", "الملخص الأسبوعي"],
+      ["reports", "📊", "الملخص"],
       ["settings", "⚙️", "الحساب"]
     ],
-
     courier: [
       ["dashboard", "⌂", "الرئيسية"],
       ["orders", "📦", "طلباتي"],
@@ -429,11967 +92,1461 @@
     ]
   };
 
-  function ensureNavigationHost() {
-    let nav = $("#navList");
-    if (nav) return nav;
+  const state = {
+    sb: null,
+    root: null,
+    session: null,
+    profile: null,
+    page: "dashboard",
+    settings: {},
+    orders: [],
+    shops: [],
+    couriers: [],
+    profiles: [],
+    offers: [],
+    currentCourier: null,
+    notifications: [],
+    ledger: [],
+    payments: [],
+    expenses: [],
+    realtime: null,
+    dispatchTimer: null,
+    activationPromise: null,
+    loading: false,
+    destroyed: false
+  };
 
-    const sidebar = $("#sidebar");
-    if (!sidebar) return null;
+  /* =========================================================
+     UTILITIES
+     ========================================================= */
 
-    nav = document.createElement("nav");
-    nav.id = "navList";
-    nav.className = "nav-list";
-
-    const logoutButton = $("#logoutBtn");
-    const footer =
-      sidebar.querySelector(".sidebar-footer, .sidebar-user, .user-card") ||
-      logoutButton?.parentElement ||
-      null;
-
-    if (footer && footer.parentElement === sidebar) {
-      sidebar.insertBefore(nav, footer);
-    } else {
-      sidebar.appendChild(nav);
-    }
-
-    return nav;
+  function escapeHTML(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  function renderNavigation() {
-    const nav = ensureNavigationHost();
-    if (!nav) return;
-
-    const role = currentRole();
-    const items = NAV[role] || [];
-
-    nav.innerHTML = items.map(([page, icon, label]) => `
-      <button type="button" class="nav-item ${state.page === page ? "active" : ""}" data-page="${escapeHTML(page)}">
-        <span class="nav-icon">${icon}</span>
-        <span>${escapeHTML(label)}</span>
-      </button>
-    `).join("");
-
-    nav.querySelectorAll("[data-page]").forEach(button => {
-      button.addEventListener("click", () => {
-        state.page = button.dataset.page;
-        closeSidebar();
-        renderPage();
-      });
-    });
+  function safeNumber(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
   }
 
-  function setTitle(title, subtitle = "") {
-    const titleEl = $("#pageTitle");
-    const subtitleEl = $("#pageSubtitle");
+  function money(value) {
+    return new Intl.NumberFormat("ar-IQ").format(safeNumber(value)) + " د.ع";
+  }
 
-    if (titleEl) {
-      titleEl.textContent = title;
+  function dateTime(value) {
+    if (!value) return "—";
+    try {
+      return new Intl.DateTimeFormat("ar-IQ", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(value));
+    } catch {
+      return String(value);
     }
+  }
 
-    if (subtitleEl) {
-      subtitleEl.textContent =
-        subtitle || CITY;
+  function todayStart() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function isToday(value) {
+    if (!value) return false;
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) && t >= todayStart().getTime();
+  }
+
+  function normalizeIraqiPhone(phone) {
+    let value = String(phone || "").replace(/\D/g, "");
+    if (!value) return "";
+    if (value.startsWith("00964")) value = value.slice(2);
+    if (value.startsWith("964")) return value;
+    if (value.startsWith("0")) return "964" + value.slice(1);
+    if (value.startsWith("7")) return "964" + value;
+    return value;
+  }
+
+  function localPhone(phone) {
+    const p = normalizeIraqiPhone(phone);
+    return p.startsWith("964") ? "0" + p.slice(3) : String(phone || "");
+  }
+
+  function phoneEmail(phone) {
+    const p = normalizeIraqiPhone(phone);
+    return p ? `${p}@phone.wasalli.local` : "";
+  }
+
+  function role() {
+    return state.profile?.role || "pending";
+  }
+
+  function isAdmin() { return role() === "admin"; }
+  function isOperations() { return role() === "operations"; }
+  function isAccountant() { return role() === "accountant"; }
+  function isCourier() { return role() === "courier"; }
+  function isShop() { return role() === "shop"; }
+  function isAdminOrOperations() { return isAdmin() || isOperations(); }
+  function isFinanceUser() { return isAdmin() || isAccountant(); }
+
+  function setting(key, fallback) {
+    const raw = state.settings[key];
+    if (raw === undefined || raw === null || raw === "") return fallback;
+    if (typeof raw !== "string") return raw;
+    try { return JSON.parse(raw); } catch { return raw; }
+  }
+
+  function defaultFee() { return safeNumber(setting("default_delivery_fee", DEFAULTS.deliveryFee), DEFAULTS.deliveryFee); }
+  function courierPercent() { return safeNumber(setting("courier_percent", DEFAULTS.courierPercent), DEFAULTS.courierPercent); }
+  function companyPercent() { return safeNumber(setting("company_percent", DEFAULTS.companyPercent), DEFAULTS.companyPercent); }
+  function pricingA() { return safeNumber(setting("pricing_a", DEFAULTS.pricingA), DEFAULTS.pricingA); }
+  function pricingB() { return safeNumber(setting("pricing_b", DEFAULTS.pricingB), DEFAULTS.pricingB); }
+
+  function orderCode(order) {
+    if (order?.order_number !== undefined && order?.order_number !== null) return `W-${order.order_number}`;
+    return String(order?.id || "").slice(0, 8) || "—";
+  }
+
+  function statusLabel(status) { return STATUS_LABELS[status] || status || "—"; }
+  function roleLabel(r) { return ROLE_LABELS[r] || r || "—"; }
+
+  function getShop(order) {
+    return state.shops.find(x => String(x.id) === String(order?.shop_id)) || null;
+  }
+
+  function getCourier(order) {
+    return state.couriers.find(x => String(x.id) === String(order?.courier_id)) || null;
+  }
+
+  function shopName(order) { return getShop(order)?.name || order?.shop || "غير محدد"; }
+  function courierName(order) { return getCourier(order)?.name || order?.courier || "غير مسند"; }
+  function customerName(order) { return order?.customer_name || order?.customer || "زبون"; }
+  function customerPhone(order) { return order?.customer_phone || order?.phone || ""; }
+  function orderAddress(order) { return order?.detailed_address || order?.delivery_address || order?.address || ""; }
+  function orderFee(order) { return safeNumber(order?.delivery_fee ?? order?.fee ?? defaultFee()); }
+  function orderGoods(order) { return safeNumber(order?.goods_value); }
+  function amountToCollect(order) {
+    const direct = safeNumber(order?.courier_collection_amount || order?.amount_to_collect);
+    if (direct > 0) return direct;
+    const mode = order?.payment_mode || order?.payment_method || "cash";
+    if (["prepaid", "electronic"].includes(mode)) return 0;
+    const payer = order?.delivery_fee_payer || order?.delivery_payer || "customer";
+    return orderGoods(order) + (payer === "shop" ? 0 : orderFee(order));
+  }
+
+  function isLate(order) {
+    if (!order || order.status !== "new" || order.courier_id) return false;
+    const t = new Date(order.dispatch_started_at || order.created_at).getTime();
+    return Number.isFinite(t) && Date.now() - t >= DEFAULTS.lateOrderMinutes * 60000;
+  }
+
+  function googleMapsUrl(lat, lng) {
+    if (lat === null || lat === undefined || lng === null || lng === undefined || lat === "" || lng === "") return "";
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
+  }
+
+  function safeExternalUrl(value) {
+    if (!value) return "";
+    try {
+      const u = new URL(String(value), window.location.href);
+      return ["http:", "https:"].includes(u.protocol) ? u.href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function orderCustomerLat(order) { return order?.customer_lat ?? order?.latitude ?? null; }
+  function orderCustomerLng(order) { return order?.customer_lng ?? order?.longitude ?? null; }
+
+  function qs(selector) { return state.root?.querySelector(selector) || null; }
+  function qsa(selector) { return state.root ? Array.from(state.root.querySelectorAll(selector)) : []; }
+
+  function debounce(fn, delay = 250) {
+    let t = null;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), delay);
+    };
+  }
+
+  /* =========================================================
+     DATABASE RESILIENCE
+     ========================================================= */
+
+  function missingColumn(error) {
+    const msg = String(error?.message || "");
+    let m = msg.match(/Could not find the '([^']+)' column/i);
+    if (m) return m[1];
+    m = msg.match(/column\s+"([^"]+)"\s+of\s+relation/i);
+    if (m) return m[1];
+    m = msg.match(/column\s+([a-zA-Z0-9_]+)\s+does not exist/i);
+    return m ? m[1] : null;
+  }
+
+  async function resilientInsert(table, payload, returnRow = true) {
+    let data = { ...payload };
+    for (let i = 0; i < 16; i++) {
+      let q = state.sb.from(table).insert(data);
+      if (returnRow) q = q.select().maybeSingle();
+      const result = await q;
+      if (!result.error) return result;
+      const col = missingColumn(result.error);
+      if (col && Object.prototype.hasOwnProperty.call(data, col)) {
+        delete data[col];
+        continue;
+      }
+      return result;
+    }
+    return { data: null, error: new Error(`تعذر الإدخال في ${table}.`) };
+  }
+
+  async function resilientUpdate(table, payload, column, value, returnRow = false) {
+    let data = { ...payload };
+    for (let i = 0; i < 16; i++) {
+      let q = state.sb.from(table).update(data).eq(column, value);
+      if (returnRow) q = q.select().maybeSingle();
+      const result = await q;
+      if (!result.error) return result;
+      const col = missingColumn(result.error);
+      if (col && Object.prototype.hasOwnProperty.call(data, col)) {
+        delete data[col];
+        continue;
+      }
+      return result;
+    }
+    return { data: null, error: new Error(`تعذر التحديث في ${table}.`) };
+  }
+
+  async function loadTable(table, configure) {
+    try {
+      let q = state.sb.from(table).select("*");
+      if (configure) q = configure(q);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.warn(`[Wasalli] ${table}:`, error);
+      return [];
     }
   }
 
   /* =========================================================
-     TOAST
+     SELF-CONTAINED UI
      ========================================================= */
 
-  function toast(message, type = "success") {
-    let host = $("#toastHost");
+  function buildUI() {
+    document.documentElement.lang = "ar";
+    document.documentElement.dir = "rtl";
+    document.body.style.margin = "0";
+    document.body.style.minHeight = "100vh";
 
-    if (!host) {
-      host = document.createElement("div");
-      host.id = "toastHost";
-      document.body.appendChild(host);
-    }
+    const host = document.createElement("div");
+    host.id = "wasalliMount";
+    document.body.replaceChildren(host);
+    const root = host.attachShadow({ mode: "open" });
+    state.root = root;
 
-    const item =
-      document.createElement("div");
+    root.innerHTML = `
+      <style>${APP_CSS}</style>
+      <div id="appRoot" class="root">
+        <section id="authView" class="auth-view">
+          <div class="auth-layout">
+            <div class="auth-brand-panel">
+              <div class="big-logo"><span>و</span></div>
+              <h1>وصلّي</h1>
+              <p>إدارة التوصيل في كربلاء من مكان واحد</p>
+              <div class="brand-points">
+                <span>طلبات</span><span>مندوبون</span><span>محلات</span><span>حسابات</span>
+              </div>
+            </div>
+            <div class="auth-card-wrap">
+              <div class="auth-card">
+                <div class="mobile-brand"><span class="mini-logo">و</span><strong>وصلّي</strong></div>
+                <div class="auth-tabs">
+                  <button type="button" class="auth-tab active" data-auth="login">تسجيل الدخول</button>
+                  <button type="button" class="auth-tab" data-auth="signup">إنشاء حساب</button>
+                </div>
 
-    item.className =
-      `wasalli-toast wasalli-toast-${type}`;
+                <form id="loginForm" class="auth-form">
+                  <label>رقم الهاتف أو البريد الإلكتروني</label>
+                  <input id="loginIdentifier" autocomplete="username" placeholder="07XXXXXXXXX أو name@email.com" />
+                  <label>كلمة المرور</label>
+                  <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+                  <button id="loginBtn" class="primary-btn" type="submit">تسجيل الدخول</button>
+                </form>
 
-    item.textContent = message;
-
-    host.appendChild(item);
-
-    requestAnimationFrame(() => {
-      item.classList.add("show");
-    });
-
-    setTimeout(() => {
-      item.classList.remove("show");
-
-      setTimeout(
-        () => item.remove(),
-        300
-      );
-    }, 3500);
-  }
-
-  /* =========================================================
-     CONFIRMATION
-     ========================================================= */
-
-  function confirmAction(
-    message,
-    confirmText = "تأكيد"
-  ) {
-    return new Promise(resolve => {
-      openModal(`
-        <div class="wasalli-confirm">
-          <div class="wasalli-confirm-icon">!</div>
-
-          <h2>تأكيد العملية</h2>
-
-          <p>${escapeHTML(message)}</p>
-
-          <div class="form-actions">
-            <button
-              type="button"
-              class="btn btn-ghost"
-              id="cancelConfirmation"
-            >
-              رجوع
-            </button>
-
-            <button
-              type="button"
-              class="btn btn-danger"
-              id="confirmConfirmation"
-            >
-              ${escapeHTML(confirmText)}
-            </button>
+                <form id="signupForm" class="auth-form hidden">
+                  <label>الاسم الكامل</label>
+                  <input id="signupName" autocomplete="name" placeholder="الاسم الكامل" />
+                  <label>رقم الهاتف العراقي</label>
+                  <input id="signupPhone" inputmode="tel" autocomplete="tel" placeholder="07XXXXXXXXX" />
+                  <label>نوع الحساب</label>
+                  <select id="signupType"><option value="courier">مندوب</option><option value="shop">محل / مشروع</option></select>
+                  <label>المنطقة</label>
+                  <input id="signupArea" placeholder="مثال: باب الخان" />
+                  <label>العنوان</label>
+                  <input id="signupAddress" placeholder="العنوان المختصر" />
+                  <div id="courierSignupFields">
+                    <label>نوع المركبة</label>
+                    <input id="signupVehicleType" placeholder="دراجة / سيارة" />
+                    <label>رقم المركبة</label>
+                    <input id="signupVehicleNumber" placeholder="اختياري" />
+                  </div>
+                  <label>كلمة المرور</label>
+                  <input id="signupPassword" type="password" autocomplete="new-password" placeholder="6 أحرف على الأقل" />
+                  <button id="signupBtn" class="primary-btn" type="submit">إنشاء الحساب</button>
+                </form>
+                <div id="authMessage" class="auth-message" aria-live="polite"></div>
+              </div>
+            </div>
           </div>
-        </div>
-      `);
-
-      $("#cancelConfirmation")
-        ?.addEventListener(
-          "click",
-          () => {
-            closeModal();
-            resolve(false);
-          }
-        );
-
-      $("#confirmConfirmation")
-        ?.addEventListener(
-          "click",
-          () => {
-            closeModal();
-            resolve(true);
-          }
-        );
-    });
-  }
-
-  /* =========================================================
-     MODAL
-     ========================================================= */
-
-  function ensureModal() {
-    let modal = $("#dynamicModal");
-
-    if (!modal) {
-      modal = document.createElement("div");
-
-      modal.id = "dynamicModal";
-      modal.className =
-        "wasalli-modal hidden";
-
-      modal.innerHTML = `
-        <div
-          class="wasalli-modal-backdrop"
-          data-close-modal
-        ></div>
-
-        <div
-          class="wasalli-modal-panel"
-          id="dynamicModalContent"
-        ></div>
-      `;
-
-      document.body.appendChild(modal);
-    }
-
-    return modal;
-  }
-
-  function openModal(html) {
-    const modal = ensureModal();
-
-    const content =
-      $("#dynamicModalContent");
-
-    if (content) {
-      content.innerHTML = html;
-    }
-
-    modal.classList.remove("hidden");
-
-    document.body.classList.add(
-      "modal-open"
-    );
-
-    state.currentModal = modal;
-
-    bindClose();
-  }
-
-  function closeModal() {
-    const modal = $("#dynamicModal");
-
-    if (modal) {
-      modal.classList.add("hidden");
-    }
-
-    document.body.classList.remove(
-      "modal-open"
-    );
-
-    state.currentModal = null;
-  }
-
-  function bindClose() {
-    $$(
-      "[data-close], [data-close-modal]"
-    ).forEach(button => {
-      button.onclick = closeModal;
-    });
-  }
-
-  /* =========================================================
-     SIDEBAR
-     ========================================================= */
-
-  function openSidebar() {
-    $("#sidebar")
-      ?.classList.add("open");
-
-    $("#sidebarBackdrop")
-      ?.classList.add("show");
-  }
-
-  function closeSidebar() {
-    $("#sidebar")
-      ?.classList.remove("open");
-
-    $("#sidebarBackdrop")
-      ?.classList.remove("show");
-  }
-
-  /* =========================================================
-     DYNAMIC DESIGN
-     لا نحتاج تعديل app.css
-     ========================================================= */
-
-  function injectWasalliEnhancements() {
-    if ($("#wasalliEnhancementStyles")) {
-      return;
-    }
-
-    const style =
-      document.createElement("style");
-
-    style.id =
-      "wasalliEnhancementStyles";
-
-    style.textContent = `
-      :root {
-        --wasalli-purple: #6f35a5;
-        --wasalli-purple-dark: #54247f;
-        --wasalli-turquoise: #18b7b0;
-        --wasalli-bg-soft: #f7f4fb;
-        --wasalli-danger: #c62828;
-        --wasalli-warning: #ef8c00;
-        --wasalli-success: #17874c;
-      }
-
-      #toastHost {
-        position: fixed;
-        top: 18px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 99999;
-        width: min(92vw, 430px);
-        pointer-events: none;
-      }
-
-      .wasalli-toast {
-        background: #fff;
-        border-radius: 14px;
-        padding: 13px 16px;
-        margin-bottom: 8px;
-        box-shadow: 0 10px 35px rgba(0,0,0,.15);
-        transform: translateY(-15px);
-        opacity: 0;
-        transition: .25s ease;
-        border-right: 5px solid var(--wasalli-purple);
-        direction: rtl;
-      }
-
-      .wasalli-toast.show {
-        transform: translateY(0);
-        opacity: 1;
-      }
-
-      .wasalli-toast-error {
-        border-right-color: var(--wasalli-danger);
-      }
-
-      .wasalli-toast-warning {
-        border-right-color: var(--wasalli-warning);
-      }
-
-      .wasalli-modal {
-        position: fixed;
-        inset: 0;
-        z-index: 9000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 18px;
-      }
-
-      .wasalli-modal.hidden {
-        display: none !important;
-      }
-
-      .wasalli-modal-backdrop {
-        position: absolute;
-        inset: 0;
-        background: rgba(22,13,31,.56);
-        backdrop-filter: blur(3px);
-      }
-
-      .wasalli-modal-panel {
-        position: relative;
-        width: min(96vw, 760px);
-        max-height: 92vh;
-        overflow: auto;
-        background: white;
-        border-radius: 24px;
-        padding: 22px;
-        box-shadow: 0 25px 70px rgba(0,0,0,.25);
-        direction: rtl;
-      }
-
-      body.modal-open {
-        overflow: hidden;
-      }
-
-      .wasalli-confirm {
-        text-align: center;
-        padding: 15px;
-      }
-
-      .wasalli-confirm-icon {
-        width: 58px;
-        height: 58px;
-        margin: 0 auto 12px;
-        border-radius: 50%;
-        background: #fff0f0;
-        color: var(--wasalli-danger);
-        display: grid;
-        place-items: center;
-        font-size: 30px;
-        font-weight: 900;
-      }
-
-      .btn-danger {
-        background: var(--wasalli-danger) !important;
-        color: #fff !important;
-        border-color: var(--wasalli-danger) !important;
-      }
-
-      .courier-mobile-shell {
-        max-width: 620px;
-        margin: 0 auto;
-      }
-
-      .courier-shift-card {
-        border-radius: 22px;
-        padding: 18px;
-        margin-bottom: 14px;
-        background:
-          linear-gradient(
-            135deg,
-            var(--wasalli-purple),
-            var(--wasalli-purple-dark)
-          );
-        color: white;
-        box-shadow: 0 12px 30px rgba(111,53,165,.22);
-      }
-
-      .courier-shift-card h2,
-      .courier-shift-card p {
-        color: inherit;
-      }
-
-      .shift-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .shift-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 7px 11px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.17);
-        font-size: 13px;
-      }
-
-      .shift-dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: #fff;
-      }
-
-      .shift-dot.live {
-        background: #4cff9a;
-        box-shadow: 0 0 0 5px rgba(76,255,154,.16);
-      }
-
-      .courier-primary-action {
-        width: 100%;
-        min-height: 50px;
-        margin-top: 15px;
-        border: 0;
-        border-radius: 15px;
-        font-weight: 800;
-        cursor: pointer;
-        background: white;
-        color: var(--wasalli-purple-dark);
-      }
-
-      .courier-availability {
-        margin-top: 10px;
-        display: flex;
-        gap: 8px;
-      }
-
-      .courier-availability button {
-        flex: 1;
-      }
-
-      .courier-stats-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(2, minmax(0,1fr));
-        gap: 10px;
-        margin: 14px 0;
-      }
-
-      .courier-stat {
-        background: #fff;
-        border-radius: 18px;
-        padding: 14px;
-        box-shadow: 0 7px 22px rgba(0,0,0,.06);
-      }
-
-      .courier-stat strong {
-        display: block;
-        font-size: 21px;
-        margin-top: 5px;
-        color: var(--wasalli-purple-dark);
-      }
-
-      .offer-card {
-        background: #fff;
-        border-radius: 22px;
-        padding: 18px;
-        margin-bottom: 13px;
-        border: 2px solid rgba(24,183,176,.38);
-        box-shadow: 0 10px 28px rgba(0,0,0,.08);
-        animation: offerPulse 1.7s ease-in-out infinite;
-      }
-
-      @keyframes offerPulse {
-        0%,100% {
-          box-shadow: 0 10px 28px rgba(0,0,0,.08);
-        }
-        50% {
-          box-shadow: 0 12px 32px rgba(24,183,176,.24);
-        }
-      }
-
-      .offer-card h3 {
-        margin: 0 0 12px;
-      }
-
-      .offer-route {
-        display: grid;
-        grid-template-columns:
-          1fr auto 1fr;
-        align-items: center;
-        gap: 8px;
-        background: var(--wasalli-bg-soft);
-        padding: 12px;
-        border-radius: 15px;
-      }
-
-      .offer-route-arrow {
-        color: var(--wasalli-turquoise);
-        font-size: 20px;
-      }
-
-      .offer-info-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(2,minmax(0,1fr));
-        gap: 8px;
-        margin-top: 10px;
-      }
-
-      .offer-info-box {
-        border: 1px solid #eee;
-        border-radius: 13px;
-        padding: 10px;
-      }
-
-      .offer-info-box small {
-        display: block;
-        opacity: .65;
-        margin-bottom: 4px;
-      }
-
-      .offer-actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 9px;
-        margin-top: 13px;
-      }
-
-      .offer-accept {
-        background: var(--wasalli-turquoise) !important;
-        color: #fff !important;
-      }
-
-      .current-order-card {
-        background: #fff;
-        border-radius: 22px;
-        padding: 18px;
-        margin-bottom: 13px;
-        box-shadow: 0 9px 28px rgba(0,0,0,.08);
-      }
-
-      .order-action-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(2,minmax(0,1fr));
-        gap: 9px;
-        margin-top: 12px;
-      }
-
-      .order-action-grid .wide {
-        grid-column: 1 / -1;
-      }
-
-      .action-call {
-        background: #188c4d !important;
-        color: #fff !important;
-      }
-
-      .action-whatsapp {
-        background: #25D366 !important;
-        color: #fff !important;
-      }
-
-      .action-map {
-        background: #2677df !important;
-        color: #fff !important;
-      }
-
-      .late-order-row,
-      .late-order-card {
-        border: 2px solid rgba(198,40,40,.35) !important;
-        background: #fff6f6 !important;
-      }
-
-      .wasalli-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 5px 9px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 700;
-        background: #eee;
-      }
-
-      .badge-new {
-        background: #efe4ff;
-        color: #62269b;
-      }
-
-      .badge-success {
-        background: #e1f7eb;
-        color: #137a44;
-      }
-
-      .badge-warning {
-        background: #fff1d7;
-        color: #a25c00;
-      }
-
-      .badge-danger {
-        background: #ffe2e2;
-        color: #a91e1e;
-      }
-
-      .badge-info {
-        background: #ddf8f6;
-        color: #087b76;
-      }
-
-      .entity-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 7px;
-      }
-
-      .archive-button {
-        background: #fff !important;
-        color: var(--wasalli-danger) !important;
-        border: 1px solid rgba(198,40,40,.3) !important;
-      }
-
-      .financial-summary-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(3,minmax(0,1fr));
-        gap: 12px;
-      }
-
-      .financial-summary-box {
-        background: white;
-        border-radius: 18px;
-        padding: 16px;
-        box-shadow: 0 8px 24px rgba(0,0,0,.06);
-      }
-
-      .mobile-section-title {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 10px;
-        margin: 18px 0 10px;
-      }
-
-      .mobile-section-title h2 {
-        margin: 0;
-        font-size: 18px;
-      }
-
-      @media (max-width: 700px) {
-        .wasalli-modal {
-          padding: 0;
-          align-items: flex-end;
-        }
-
-        .wasalli-modal-panel {
-          width: 100%;
-          max-height: 94vh;
-          border-radius: 24px 24px 0 0;
-          padding: 18px;
-        }
-
-        .financial-summary-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .courier-stats-grid {
-          grid-template-columns:
-            repeat(2,minmax(0,1fr));
-        }
-
-        .offer-info-grid {
-          grid-template-columns:
-            repeat(2,minmax(0,1fr));
-        }
-
-        .offer-actions {
-          grid-template-columns: 1fr 1fr;
-        }
-      }
+        </section>
+
+        <section id="pendingView" class="pending-view hidden">
+          <div class="pending-card">
+            <div class="pending-icon">⏳</div>
+            <h2>الحساب بانتظار الموافقة</h2>
+            <p>تم تسجيل الدخول بنجاح، لكن الحساب لم يُفعّل بعد من إدارة وصلّي.</p>
+            <button id="pendingLogout" class="secondary-btn">تسجيل الخروج</button>
+          </div>
+        </section>
+
+        <section id="appView" class="app-view hidden">
+          <div class="shell">
+            <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+            <aside id="sidebar" class="sidebar">
+              <div class="side-brand"><div class="logo-box">و</div><div><strong>وصلّي</strong><small>لخدمات التوصيل</small></div></div>
+              <nav id="navList" class="nav-list"></nav>
+              <div class="side-user">
+                <div id="userAvatar" class="avatar">و</div>
+                <div class="user-meta"><strong id="userName">مستخدم</strong><small id="userRole">—</small></div>
+              </div>
+              <button id="logoutBtn" class="logout-btn">تسجيل الخروج</button>
+            </aside>
+
+            <main class="main">
+              <header class="topbar">
+                <div class="topbar-title-row">
+                  <button id="menuToggle" class="icon-btn menu-btn" aria-label="القائمة">☰</button>
+                  <div><h1 id="pageTitle">لوحة التحكم</h1><p id="pageSubtitle">${escapeHTML(DEFAULTS.city)}</p></div>
+                </div>
+                <div class="top-actions">
+                  <button id="notificationBtn" class="icon-btn" title="الإشعارات">🔔<span id="notificationBadge" class="notif-badge hidden">0</span></button>
+                  <button id="refreshBtn" class="icon-btn" title="تحديث">↻</button>
+                </div>
+              </header>
+              <section id="content" class="content"><div class="loading-card">جاري تحميل النظام...</div></section>
+            </main>
+          </div>
+        </section>
+
+        <div id="toastHost" class="toast-host"></div>
+        <div id="modal" class="modal hidden"><div class="modal-backdrop" data-close-modal></div><div id="modalPanel" class="modal-panel"></div></div>
+      </div>
     `;
 
-    document.head.appendChild(style);
+    bindBaseUI();
   }
 
-  /* =========================================================
-     AUTH SCREEN
-     ========================================================= */
+  const APP_CSS = `
+    :host { all: initial; }
+    *,*::before,*::after{box-sizing:border-box}
+    .root{--p:#5f2b93;--pd:#3f176d;--p2:#783ab3;--t:#17b8b1;--bg:#f6f4f9;--card:#fff;--text:#241a2d;--muted:#776b80;--line:#e9e3ee;--danger:#c83232;--success:#15834b;--warn:#b86a00;font-family:"Tahoma","Arial",sans-serif;color:var(--text);background:var(--bg);min-height:100vh;direction:rtl;font-size:15px}
+    button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display:none!important}
+    .auth-view{min-height:100vh;background:linear-gradient(135deg,#f6f1fb,#fff)}
+    .auth-layout{min-height:100vh;display:grid;grid-template-columns:minmax(340px,.9fr) minmax(520px,1.1fr)}
+    .auth-brand-panel{background:linear-gradient(155deg,#35126e 0%,#4930ba 48%,#6b30bf 100%);color:#fff;padding:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;position:relative;overflow:hidden}
+    .auth-brand-panel:before,.auth-brand-panel:after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.06)}.auth-brand-panel:before{width:420px;height:420px;top:-180px;left:-150px}.auth-brand-panel:after{width:300px;height:300px;bottom:-120px;right:-90px}
+    .big-logo{width:116px;height:116px;border-radius:31px;background:#fff;color:var(--pd);display:grid;place-items:center;font-size:66px;font-weight:900;box-shadow:0 18px 50px rgba(0,0,0,.18);z-index:1}.auth-brand-panel h1{font-size:54px;margin:18px 0 2px;z-index:1}.auth-brand-panel p{font-size:19px;opacity:.9;z-index:1}.brand-points{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:22px;z-index:1}.brand-points span{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.13)}
+    .auth-card-wrap{display:grid;place-items:center;padding:36px}.auth-card{width:min(100%,470px);background:#fff;border:1px solid var(--line);border-radius:28px;padding:28px;box-shadow:0 20px 70px rgba(59,30,79,.12)}.mobile-brand{display:none;align-items:center;gap:10px;font-size:23px;margin-bottom:22px}.mini-logo{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:var(--p);color:#fff;font-size:26px;font-weight:900}
+    .auth-tabs{display:grid;grid-template-columns:1fr 1fr;background:#f4eff8;border-radius:14px;padding:4px;margin-bottom:24px}.auth-tab{border:0;background:transparent;padding:12px;border-radius:11px;color:var(--muted);font-weight:800}.auth-tab.active{background:var(--p);color:#fff;box-shadow:0 5px 14px rgba(95,43,147,.25)}
+    .auth-form{display:grid;gap:10px}.auth-form label{font-size:13px;font-weight:800;margin-top:5px}.auth-form input,.auth-form select,.field input,.field select,.field textarea,.filter-input{width:100%;border:1px solid #ded5e6;background:#fff;border-radius:12px;padding:12px 13px;outline:none;color:var(--text);transition:.2s}.auth-form input:focus,.auth-form select:focus,.field input:focus,.field select:focus,.field textarea:focus,.filter-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(95,43,147,.09)}
+    .primary-btn,.secondary-btn,.danger-btn,.ghost-btn,.success-btn{border:0;border-radius:12px;padding:11px 15px;font-weight:800;transition:.18s;display:inline-flex;align-items:center;justify-content:center;gap:7px}.primary-btn{background:linear-gradient(135deg,var(--p),var(--p2));color:#fff}.secondary-btn{background:#eee7f4;color:var(--pd)}.danger-btn{background:#ffe7e7;color:#9d2222}.success-btn{background:#e1f6e9;color:#11683b}.ghost-btn{background:#fff;color:var(--text);border:1px solid var(--line)}.primary-btn:hover,.secondary-btn:hover,.danger-btn:hover,.ghost-btn:hover,.success-btn:hover{transform:translateY(-1px)}button:disabled{opacity:.55;cursor:not-allowed;transform:none!important}.auth-message{min-height:24px;margin-top:14px;text-align:center;color:#9c3232;font-weight:700;font-size:13px}
+    .pending-view{min-height:100vh;display:grid;place-items:center;padding:22px;background:linear-gradient(145deg,#f8f4fc,#fff)}.pending-card{width:min(100%,520px);background:#fff;border-radius:26px;padding:38px;text-align:center;box-shadow:0 18px 60px rgba(60,30,80,.12)}.pending-icon{font-size:48px}.pending-card h2{margin:12px 0}.pending-card p{color:var(--muted);line-height:1.9;margin-bottom:24px}
+    .shell{min-height:100vh;display:grid;grid-template-areas:"main side";grid-template-columns:minmax(0,1fr) 286px}.sidebar{grid-area:side;background:linear-gradient(180deg,#1f268d 0%,#562bb6 65%,#6f36bf 100%);color:#fff;min-height:100vh;padding:24px 18px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:auto;z-index:50}.side-brand{display:flex;align-items:center;gap:12px;padding:2px 7px 24px;border-bottom:1px solid rgba(255,255,255,.14)}.logo-box{width:56px;height:56px;border-radius:17px;background:#fff;color:#25258e;display:grid;place-items:center;font-size:35px;font-weight:900}.side-brand strong{font-size:25px;display:block}.side-brand small{opacity:.82}.nav-list{display:grid;gap:5px;padding:20px 0;flex:1}.nav-item{width:100%;border:0;background:transparent;color:rgba(255,255,255,.88);border-radius:12px;padding:11px 12px;text-align:right;display:flex;align-items:center;gap:11px;font-weight:700}.nav-item:hover,.nav-item.active{background:rgba(255,255,255,.16);color:#fff}.nav-icon{width:27px;text-align:center;font-size:18px}.side-user{display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,.14);padding:18px 4px 10px}.avatar{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:var(--t);color:#fff;font-size:22px;font-weight:900}.user-meta{min-width:0}.user-meta strong,.user-meta small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.user-meta small{opacity:.75;margin-top:3px}.logout-btn{width:100%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.1);color:#fff;border-radius:12px;padding:11px;font-weight:800}.main{grid-area:main;min-width:0}.topbar{min-height:88px;background:#fff;border-bottom:1px solid var(--line);padding:16px 26px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:30}.topbar-title-row{display:flex;align-items:center;gap:13px}.topbar h1{font-size:24px;margin:0 0 4px}.topbar p{margin:0;color:var(--muted);font-size:13px}.top-actions{display:flex;gap:8px}.icon-btn{width:42px;height:42px;border:1px solid var(--line);border-radius:12px;background:#fff;display:grid;place-items:center;position:relative;font-size:19px}.menu-btn{display:none}.notif-badge{position:absolute;top:-6px;left:-5px;min-width:19px;height:19px;border-radius:99px;padding:0 5px;background:#d93030;color:#fff;font-size:11px;display:grid;place-items:center;border:2px solid #fff}.content{padding:24px;max-width:1600px;margin:0 auto}.loading-card,.empty{background:#fff;border:1px dashed #d8cce2;border-radius:18px;padding:30px;text-align:center;color:var(--muted)}
+    .stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:18px}.stat-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:17px;display:flex;align-items:center;gap:13px;box-shadow:0 5px 22px rgba(45,25,65,.04)}.stat-icon{width:45px;height:45px;border-radius:14px;background:#f1e9f8;display:grid;place-items:center;font-size:21px}.stat-card small{display:block;color:var(--muted);margin-bottom:5px}.stat-card strong{font-size:23px}.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 5px 22px rgba(45,25,65,.04)}.card+.card{margin-top:15px}.card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.card-header h2{margin:0;font-size:19px}.card-header p{margin:5px 0 0;color:var(--muted);font-size:13px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.filters{display:grid;grid-template-columns:minmax(180px,1fr) repeat(2,minmax(130px,.3fr));gap:9px;margin-bottom:14px}.table-wrap{width:100%;overflow:auto;border:1px solid var(--line);border-radius:14px}.data-table{width:100%;border-collapse:collapse;min-width:780px}.data-table th,.data-table td{padding:12px 11px;text-align:right;border-bottom:1px solid #eee9f2;white-space:nowrap}.data-table th{background:#faf8fc;color:#6e6177;font-size:12px}.data-table tbody tr:hover{background:#fcfaff}.data-table tr:last-child td{border-bottom:0}.mobile-list{display:none}.entity-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.entity-card{border:1px solid var(--line);border-radius:17px;padding:15px;background:#fff}.entity-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.entity-icon{width:43px;height:43px;border-radius:13px;background:#f0e8f7;display:grid;place-items:center;font-size:21px}.entity-head h3{margin:0;font-size:16px}.entity-head p{margin:4px 0 0;color:var(--muted);font-size:12px}.info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.info-box{background:#faf8fc;border-radius:11px;padding:10px}.info-box small{display:block;color:var(--muted);margin-bottom:3px}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.btn-sm{padding:7px 10px;border-radius:10px;font-size:12px}.badge{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;font-size:11px;font-weight:800;background:#eee}.badge-new{background:#eee3ff;color:#5d2694}.badge-ok{background:#dff6e8;color:#126a3c}.badge-warn{background:#fff0d4;color:#9b5a00}.badge-danger{background:#ffe3e3;color:#9a2626}.badge-info{background:#dcf7f5;color:#087b76}.late{box-shadow:inset 4px 0 0 #d23b3b;background:#fff8f8}.page-actions{display:flex;gap:8px;flex-wrap:wrap}.muted{color:var(--muted)}.strong{font-weight:900}.kpi{font-size:26px;font-weight:900}.section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px}.section-title h2{font-size:19px;margin:0}
+    .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field{display:grid;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:12px;font-weight:800}.modal{position:fixed;inset:0;z-index:999;display:grid;place-items:center;padding:18px}.modal-backdrop{position:absolute;inset:0;background:rgba(25,14,35,.56);backdrop-filter:blur(3px)}.modal-panel{position:relative;width:min(96vw,780px);max-height:92vh;overflow:auto;background:#fff;border-radius:22px;padding:20px;box-shadow:0 28px 80px rgba(0,0,0,.28)}.modal-title{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:17px}.modal-title h2{margin:0}.close-btn{width:37px;height:37px;border:0;border-radius:11px;background:#f2edf5;font-size:20px}.form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}.toast-host{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2000;width:min(92vw,430px);pointer-events:none}.toast{background:#fff;border-radius:13px;padding:13px 15px;margin-bottom:8px;box-shadow:0 12px 40px rgba(0,0,0,.18);border-right:5px solid var(--p);animation:toastIn .22s ease}.toast.error{border-right-color:#c83232}.toast.warning{border-right-color:#e28a00}.toast.success{border-right-color:#17834c}@keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+    .sidebar-backdrop{display:none}.courier-hero{background:linear-gradient(135deg,var(--p),var(--pd));color:#fff;border-radius:22px;padding:20px}.courier-hero .badge{background:rgba(255,255,255,.16);color:#fff}.offer-card{border:2px solid rgba(23,184,177,.35);border-radius:18px;padding:15px;background:#fff;margin-bottom:10px}.route{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;background:#f8f5fa;border-radius:12px;padding:11px;margin:10px 0}.financial-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.map-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.link-btn{text-decoration:none}.nowrap{white-space:nowrap}.mobile-only{display:none}.danger-text{color:#a52a2a}.success-text{color:#137343}
+    @media(max-width:1200px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.entity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:900px){.shell{display:block}.sidebar{position:fixed;right:0;top:0;width:min(86vw,310px);transform:translateX(105%);transition:.23s ease;box-shadow:-20px 0 50px rgba(0,0,0,.2)}.sidebar.open{transform:none}.sidebar-backdrop{display:block;position:fixed;inset:0;background:rgba(20,10,30,.44);z-index:45;opacity:0;pointer-events:none;transition:.2s}.sidebar-backdrop.show{opacity:1;pointer-events:auto}.menu-btn{display:grid}.topbar{padding:13px 15px}.content{padding:15px}.auth-layout{display:block}.auth-brand-panel{display:none}.auth-card-wrap{min-height:100vh;padding:18px}.mobile-brand{display:flex}.auth-card{padding:21px}.filters{grid-template-columns:1fr 1fr}.filters .filter-input:first-child{grid-column:1/-1}.entity-grid{grid-template-columns:1fr}.financial-grid,.map-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:650px){.topbar h1{font-size:19px}.topbar p{font-size:11px}.stats-grid{grid-template-columns:1fr 1fr;gap:9px}.stat-card{padding:12px;gap:8px}.stat-icon{width:38px;height:38px}.stat-card strong{font-size:19px}.card{padding:13px;border-radius:16px}.card-header{align-items:flex-start}.desktop-table{display:none}.mobile-list{display:grid;gap:9px}.mobile-order-card{border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff}.mobile-order-card .row{display:flex;justify-content:space-between;gap:10px;margin:6px 0}.filters{grid-template-columns:1fr}.filters .filter-input:first-child{grid-column:auto}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}.modal{padding:0;align-items:end}.modal-panel{width:100%;max-height:94vh;border-radius:22px 22px 0 0;padding:16px}.financial-grid,.map-grid{grid-template-columns:1fr}.auth-card-wrap{place-items:center}.auth-card{border-radius:20px}.brand-points{display:none}.page-actions{width:100%}.page-actions button{flex:1}.top-actions .icon-btn{width:39px;height:39px}.info-grid{grid-template-columns:1fr 1fr}.mobile-only{display:block}}
+  `;
 
- function showAuth() {
-  stopRealtime?.();
-  stopOfferSound?.();
-  stopDispatchTimer?.();
-  stopLocationTracking?.();
-
-  $("#authView")?.classList.remove("hidden");
-  $("#appView")?.classList.add("hidden");
-  $("#pendingScreen")?.classList.add("hidden");
-}
-
-function showPending() {
-  $("#authView")?.classList.add("hidden");
-  $("#appView")?.classList.add("hidden");
-  $("#pendingScreen")?.classList.remove("hidden");
-}
-
-function showApp() {
-  $("#authView")?.classList.add("hidden");
-  $("#pendingScreen")?.classList.add("hidden");
-  $("#appView")?.classList.remove("hidden");
-}
-
-  /* =========================================================
-     AUTH
-     ========================================================= */
-function setAuthMessage(message) {
-  const el = document.getElementById("authMessage");
-  if (el) {
-    el.textContent = message;
-  } else {
-    console.log(message);
-  }
-}
-async function login(event) {
-  event?.preventDefault();
-
-  const input =
-    $("#loginIdentifier")?.value?.trim() ||
-    $("#loginEmail")?.value?.trim() ||
-    $("#loginPhone")?.value?.trim() ||
-    "";
-
-  const password =
-    $("#loginPassword")?.value || "";
-
-  if (!input || !password) {
-    setAuthMessage(
-      "اكتب رقم الهاتف أو البريد الإلكتروني وكلمة المرور."
-    );
-    return;
+  function bindBaseUI() {
+    qs("#loginForm")?.addEventListener("submit", login);
+    qs("#signupForm")?.addEventListener("submit", signup);
+    qs("#signupType")?.addEventListener("change", toggleSignupFields);
+    qs("#pendingLogout")?.addEventListener("click", logout);
+    qs("#logoutBtn")?.addEventListener("click", logout);
+    qs("#menuToggle")?.addEventListener("click", openSidebar);
+    qs("#sidebarBackdrop")?.addEventListener("click", closeSidebar);
+    qs("#refreshBtn")?.addEventListener("click", async () => {
+      await loadAll(true);
+      renderPage();
+    });
+    qs("#notificationBtn")?.addEventListener("click", openNotifications);
+    qsa(".auth-tab").forEach(btn => btn.addEventListener("click", () => switchAuth(btn.dataset.auth)));
+    qs("#modal")?.addEventListener("click", e => {
+      if (e.target?.hasAttribute?.("data-close-modal")) closeModal();
+    });
+    window.addEventListener("resize", () => { if (window.innerWidth > 900) closeSidebar(); });
   }
 
-  let email = "";
-
-  // تسجيل الدخول بالبريد الإلكتروني
-  if (input.includes("@")) {
-    email = input.toLowerCase();
-  }
-
-  // تسجيل الدخول برقم الهاتف
-  else {
-    const phone = normalizeIraqiPhone(input);
-
-    if (!phone) {
-      setAuthMessage(
-        "رقم الهاتف غير صحيح. اكتب رقم عراقي صحيح أو استخدم البريد الإلكتروني."
-      );
-      return;
-    }
-
-    email = phoneEmail(phone);
-  }
-
-  setAuthMessage("جاري تسجيل الدخول...");
-
-  try {
-    const { data, error } =
-      await sb.auth.signInWithPassword({
-        email,
-        password
-      });
-
-    if (error) {
-      console.error("Login error:", error);
-
-      setAuthMessage(
-        "تعذر تسجيل الدخول. تأكد من رقم الهاتف أو البريد الإلكتروني وكلمة المرور."
-      );
-      return;
-    }
-
-    if (!data?.session) {
-      setAuthMessage(
-        "تعذر إنشاء جلسة تسجيل الدخول."
-      );
-      return;
-    }
-
+  function switchAuth(mode) {
+    qsa(".auth-tab").forEach(b => b.classList.toggle("active", b.dataset.auth === mode));
+    qs("#loginForm")?.classList.toggle("hidden", mode !== "login");
+    qs("#signupForm")?.classList.toggle("hidden", mode !== "signup");
     setAuthMessage("");
-
-    await enterSession(data.session);
-
-  } catch (error) {
-    console.error(
-      "Login exception:",
-      error
-    );
-
-    setAuthMessage(
-      "حدث خطأ أثناء تسجيل الدخول. حاول مرة أخرى."
-    );
-  }
-}
-  /* =========================================================
-     SIGNUP
-     ========================================================= */
-
-  async function signup(event) {
-    event?.preventDefault();
-
-    const fullName =
-      $("#signupName")?.value?.trim() ||
-      "";
-
-    const phone =
-      normalizeIraqiPhone(
-        $("#signupPhone")?.value || ""
-      );
-
-    const password =
-      $("#signupPassword")?.value || "";
-
-    const requestedRole =
-      $("#signupType")?.value ||
-      "courier";
-
-    const area =
-      $("#signupArea")?.value ||
-      null;
-
-    const address =
-      $("#signupAddress")?.value?.trim() ||
-      null;
-
-    const vehicleType =
-      $("#signupVehicleType")
-        ?.value?.trim() ||
-      null;
-
-    const vehicleNumber =
-      $("#signupVehicleNumber")
-        ?.value?.trim() ||
-      null;
-
-    const emergencyPhone =
-      normalizeIraqiPhone(
-        $("#signupEmergencyPhone")
-          ?.value || ""
-      ) || null;
-
-    if (
-      !fullName ||
-      !phone ||
-      !password
-    ) {
-      setAuthMessage(
-        "أكمل الاسم ورقم الهاتف وكلمة المرور."
-      );
-
-      return;
-    }
-
-    if (password.length < 6) {
-      setAuthMessage(
-        "كلمة المرور يجب أن تكون 6 أحرف على الأقل."
-      );
-
-      return;
-    }
-
-    if (
-      !["courier", "shop"].includes(
-        requestedRole
-      )
-    ) {
-      setAuthMessage(
-        "نوع الحساب غير مسموح حالياً."
-      );
-
-      return;
-    }
-
-    setAuthMessage(
-      "جاري إنشاء الحساب..."
-    );
-
-    const email =
-      phoneEmail(phone);
-
-    const { data, error } =
-      await sb.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-            phone,
-            requested_role:
-              requestedRole
-          }
-        }
-      });
-
-    if (error) {
-      console.error(error);
-
-      setAuthMessage(
-        "تعذر إنشاء الحساب: " +
-          error.message
-      );
-
-      return;
-    }
-
-    if (!data.user) {
-      setAuthMessage(
-        "تعذر إنشاء الحساب."
-      );
-      return;
-    }
-
-    const profilePayload = {
-      id: data.user.id,
-      full_name: fullName,
-      phone,
-      email,
-      role: "pending",
-      requested_role: requestedRole,
-      is_active: false,
-      area,
-      address,
-      vehicle_type:
-        requestedRole === "courier"
-          ? vehicleType
-          : null,
-      vehicle_number:
-        requestedRole === "courier"
-          ? vehicleNumber
-          : null,
-      emergency_phone:
-        requestedRole === "courier"
-          ? emergencyPhone
-          : null,
-      updated_at:
-        new Date().toISOString()
-    };
-
-    const { error: profileError } =
-      await sb
-        .from("profiles")
-        .upsert(
-          profilePayload,
-          { onConflict: "id" }
-        );
-
-    if (profileError) {
-      console.error(profileError);
-    }
-
-    setAuthMessage(
-      "تم إنشاء الحساب. بانتظار موافقة الإدارة."
-    );
-
-    if (data.session) {
-      await enterSession(
-        data.session
-      );
-    }
   }
 
   function toggleSignupFields() {
-    const role =
-      $("#signupType")?.value;
-
-    const courierFields =
-      $("#courierSignupFields");
-
-    if (courierFields) {
-      courierFields.classList.toggle(
-        "hidden",
-        role !== "courier"
-      );
-    }
+    const courier = qs("#signupType")?.value === "courier";
+    qs("#courierSignupFields")?.classList.toggle("hidden", !courier);
   }
 
-  function populateSignupAreas() {
-    const select =
-      $("#signupArea");
+  function showAuth() {
+    stopRealtime();
+    stopDispatchTimer();
+    qs("#authView")?.classList.remove("hidden");
+    qs("#pendingView")?.classList.add("hidden");
+    qs("#appView")?.classList.add("hidden");
+    closeModal();
+  }
 
-    if (!select) return;
+  function showPending() {
+    qs("#authView")?.classList.add("hidden");
+    qs("#pendingView")?.classList.remove("hidden");
+    qs("#appView")?.classList.add("hidden");
+  }
 
-    if (select.options.length > 1) {
-      return;
+  function showApp() {
+    qs("#authView")?.classList.add("hidden");
+    qs("#pendingView")?.classList.add("hidden");
+    qs("#appView")?.classList.remove("hidden");
+  }
+
+  function openSidebar() {
+    qs("#sidebar")?.classList.add("open");
+    qs("#sidebarBackdrop")?.classList.add("show");
+  }
+
+  function closeSidebar() {
+    qs("#sidebar")?.classList.remove("open");
+    qs("#sidebarBackdrop")?.classList.remove("show");
+  }
+
+  function openModal(html) {
+    const modal = qs("#modal");
+    const panel = qs("#modalPanel");
+    if (!modal || !panel) return;
+    panel.innerHTML = html;
+    modal.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    qs("#modal")?.classList.add("hidden");
+    const panel = qs("#modalPanel");
+    if (panel) panel.innerHTML = "";
+  }
+
+  function modalHeader(title, subtitle = "") {
+    return `<div class="modal-title"><div><h2>${escapeHTML(title)}</h2>${subtitle ? `<p class="muted">${escapeHTML(subtitle)}</p>` : ""}</div><button class="close-btn" data-close-modal>×</button></div>`;
+  }
+
+  function toast(message, type = "success") {
+    const host = qs("#toastHost");
+    if (!host) return;
+    const el = document.createElement("div");
+    el.className = `toast ${type}`;
+    el.textContent = String(message || "");
+    host.appendChild(el);
+    setTimeout(() => el.remove(), 3800);
+  }
+
+  function setAuthMessage(message, type = "error") {
+    const el = qs("#authMessage");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = type === "success" ? "#157548" : type === "info" ? "#5f2b93" : "#9c3232";
+  }
+
+  function setPageTitle(title, subtitle = "") {
+    if (qs("#pageTitle")) qs("#pageTitle").textContent = title;
+    if (qs("#pageSubtitle")) qs("#pageSubtitle").textContent = subtitle || setting("city", DEFAULTS.city);
+  }
+
+  function setBusy(button, busy, busyText = "جاري...") {
+    if (!button) return;
+    if (busy) {
+      button.dataset.oldText = button.textContent;
+      button.disabled = true;
+      button.textContent = busyText;
+    } else {
+      button.disabled = false;
+      if (button.dataset.oldText) button.textContent = button.dataset.oldText;
     }
-
-    const commonAreas = [
-      "مركز كربلاء",
-      "باب الخان",
-      "باب بغداد",
-      "باب طويريج",
-      "باب القبلة",
-      "العباسية",
-      "الحر",
-      "الحسين",
-      "الإسكان",
-      "المعلمين",
-      "البلدية",
-      "الأنصار",
-      "الحي الصناعي",
-      "سيف سعد",
-      "الملحق",
-      "الجمعية",
-      "العامل",
-      "رمضان",
-      "الغدير",
-      "الوفاء",
-      "الانتفاضة",
-      "الرسالة",
-      "الجامعة"
-    ];
-
-    commonAreas.forEach(area => {
-      const option =
-        document.createElement(
-          "option"
-        );
-
-      option.value = area;
-      option.textContent = area;
-
-      select.appendChild(option);
-    });
   }
 
   /* =========================================================
-     SESSION
+     AUTH + SESSION
      ========================================================= */
 
-  async function enterSession(session) {
-    state.session = session;
+  async function login(event) {
+    event?.preventDefault();
+    const btn = qs("#loginBtn");
+    const input = qs("#loginIdentifier")?.value?.trim() || "";
+    const password = qs("#loginPassword")?.value || "";
+    if (!input || !password) return setAuthMessage("اكتب رقم الهاتف أو البريد الإلكتروني وكلمة المرور.");
 
-    const { data: profile, error } =
-      await sb
-        .from("profiles")
-        .select("*")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-    if (error) {
-      console.error(error);
-
-      toast(
-        "تعذر تحميل الحساب.",
-        "error"
-      );
-
-      return;
+    let email = "";
+    if (input.includes("@")) email = input.toLowerCase();
+    else {
+      const phone = normalizeIraqiPhone(input);
+      if (!phone || phone.length < 10) return setAuthMessage("رقم الهاتف غير صحيح.");
+      email = phoneEmail(phone);
     }
 
-    if (!profile) {
-      toast(
-        "ملف الحساب غير موجود.",
-        "error"
-      );
-
-      await sb.auth.signOut();
-      return;
+    setBusy(btn, true, "جاري تسجيل الدخول...");
+    setAuthMessage("جاري التحقق من الحساب...", "info");
+    try {
+      const { data, error } = await state.sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      if (!data?.session) throw new Error("لم يتم إنشاء جلسة تسجيل دخول.");
+      setAuthMessage("");
+      await activateSession(data.session);
+    } catch (error) {
+      console.error("[Wasalli login]", error);
+      setAuthMessage("تعذر تسجيل الدخول. تأكد من البيانات وحاول مرة أخرى.");
+    } finally {
+      setBusy(btn, false);
     }
-
-    state.profile = profile;
-
-    if (
-      !profile.is_active ||
-      profile.role === "pending"
-    ) {
-      showPending();
-      return;
-    }
-
-showApp();
-state.page = "dashboard";
-updateUserHeader();
-renderNavigation();
-await loadAll();
-
-startRealtime();
-
-    if (isAdminOrOperations()) {
-      startDispatchTimer();
-    }
-
-    if (
-      isCourier() &&
-      state.currentCourier?.is_on_shift
-    ) {
-      startLocationTracking();
-    }
-
-    renderPage();
   }
 
-  function updateUserHeader() {
-    const name =
-      state.profile?.full_name ||
-      "مستخدم";
+  async function signup(event) {
+    event?.preventDefault();
+    const btn = qs("#signupBtn");
+    const fullName = qs("#signupName")?.value?.trim() || "";
+    const phone = normalizeIraqiPhone(qs("#signupPhone")?.value || "");
+    const password = qs("#signupPassword")?.value || "";
+    const requestedRole = qs("#signupType")?.value || "courier";
+    const area = qs("#signupArea")?.value?.trim() || null;
+    const address = qs("#signupAddress")?.value?.trim() || null;
+    const vehicleType = requestedRole === "courier" ? (qs("#signupVehicleType")?.value?.trim() || null) : null;
+    const vehicleNumber = requestedRole === "courier" ? (qs("#signupVehicleNumber")?.value?.trim() || null) : null;
 
-    const role =
-      roleLabel(currentRole());
+    if (!fullName || !phone || !password) return setAuthMessage("أكمل الاسم ورقم الهاتف وكلمة المرور.");
+    if (password.length < 6) return setAuthMessage("كلمة المرور يجب أن تكون 6 أحرف على الأقل.");
+    if (!["courier", "shop"].includes(requestedRole)) return setAuthMessage("نوع الحساب غير مسموح.");
 
-    if ($("#userName")) {
-      $("#userName").textContent =
-        name;
+    const email = phoneEmail(phone);
+    setBusy(btn, true, "جاري إنشاء الحساب...");
+    setAuthMessage("جاري إنشاء الحساب...", "info");
+    try {
+      const { data, error } = await state.sb.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName, phone, requested_role: requestedRole } }
+      });
+      if (error) throw error;
+      if (!data?.user) throw new Error("تعذر إنشاء المستخدم.");
+
+      const payload = {
+        id: data.user.id,
+        full_name: fullName,
+        phone,
+        email,
+        role: "pending",
+        requested_role: requestedRole,
+        is_active: false,
+        area,
+        address,
+        vehicle_type: vehicleType,
+        vehicle_number: vehicleNumber,
+        updated_at: new Date().toISOString()
+      };
+
+      let upsert = await state.sb.from("profiles").upsert(payload, { onConflict: "id" });
+      if (upsert.error) console.warn("[Wasalli profile signup]", upsert.error);
+
+      setAuthMessage("تم إنشاء الحساب. بانتظار موافقة الإدارة.", "success");
+      if (data.session) await activateSession(data.session);
+    } catch (error) {
+      console.error("[Wasalli signup]", error);
+      setAuthMessage(`تعذر إنشاء الحساب: ${error?.message || "خطأ غير معروف"}`);
+    } finally {
+      setBusy(btn, false);
     }
+  }
 
-    if ($("#userRole")) {
-      $("#userRole").textContent =
-        role;
-    }
+  async function loadProfile(session) {
+    const { data, error } = await state.sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+    if (error) throw error;
+    if (data) return data;
 
-    if ($("#userAvatar")) {
-      $("#userAvatar").textContent =
-        name.trim().charAt(0) || "و";
-    }
+    const meta = session.user.user_metadata || {};
+    const fallback = {
+      id: session.user.id,
+      full_name: meta.full_name || "مستخدم",
+      phone: meta.phone || null,
+      email: session.user.email || null,
+      role: "pending",
+      requested_role: meta.requested_role || "courier",
+      is_active: false,
+      updated_at: new Date().toISOString()
+    };
+    const created = await state.sb.from("profiles").upsert(fallback, { onConflict: "id" }).select().maybeSingle();
+    if (created.error) return fallback;
+    return created.data || fallback;
+  }
+
+  async function activateSession(session) {
+    if (!session?.user?.id) return showAuth();
+    if (state.activationPromise) return state.activationPromise;
+
+    state.activationPromise = (async () => {
+      try {
+        state.session = session;
+        const profile = await loadProfile(session);
+        state.profile = profile;
+        updateUserHeader();
+
+        if (!profile?.is_active || profile.role === "pending") {
+          showPending();
+          return;
+        }
+
+        if (!NAV[profile.role]) {
+          toast("نوع صلاحية الحساب غير معروف. راجع الإدارة.", "error");
+          showPending();
+          return;
+        }
+
+        state.page = "dashboard";
+        showApp();
+        renderNavigation();
+        renderLoading("جاري تحميل بيانات الحساب...");
+        await loadAll(false);
+        renderNavigation();
+        renderPage();
+        startRealtime();
+        if (isAdminOrOperations()) startDispatchTimer();
+      } catch (error) {
+        console.error("[Wasalli activateSession]", error);
+        toast("تعذر تحميل الحساب: " + (error?.message || "خطأ غير معروف"), "error");
+        showAuth();
+      } finally {
+        state.activationPromise = null;
+      }
+    })();
+
+    return state.activationPromise;
   }
 
   async function logout() {
-    stopRealtime?.();
-    stopOfferSound?.();
-    stopDispatchTimer?.();
-    stopLocationTracking?.();
-
+    const buttons = [qs("#logoutBtn"), qs("#pendingLogout")].filter(Boolean);
+    buttons.forEach(b => setBusy(b, true, "جاري الخروج..."));
     try {
-      await sb.auth.signOut();
+      stopRealtime();
+      stopDispatchTimer();
+      await state.sb.auth.signOut();
     } catch (error) {
-      console.warn("Sign out error:", error);
+      console.warn("[Wasalli logout]", error);
     } finally {
       resetState();
       showAuth();
+      buttons.forEach(b => setBusy(b, false));
     }
   }
 
   function resetState() {
     state.session = null;
     state.profile = null;
-
     state.page = "dashboard";
-
+    state.settings = {};
     state.orders = [];
     state.shops = [];
     state.couriers = [];
     state.profiles = [];
-
-    state.orderOffers = [];
+    state.offers = [];
     state.currentCourier = null;
-
     state.notifications = [];
-
-    state.financialLedger = [];
-    state.courierPayments = [];
+    state.ledger = [];
+    state.payments = [];
     state.expenses = [];
+    updateUserHeader();
+  }
 
-    state.map = null;
-    state.mapMarkers = [];
+  function updateUserHeader() {
+    const name = state.profile?.full_name || "مستخدم";
+    if (qs("#userName")) qs("#userName").textContent = name;
+    if (qs("#userRole")) qs("#userRole").textContent = roleLabel(role());
+    if (qs("#userAvatar")) qs("#userAvatar").textContent = name.trim().charAt(0) || "و";
   }
 
   /* =========================================================
      DATA LOADING
      ========================================================= */
 
+  async function loadSettings() {
+    const rows = await loadTable("app_settings", q => q.limit(200));
+    const obj = {};
+    rows.forEach(row => { if (row?.key) obj[row.key] = row.value; });
+    state.settings = obj;
+  }
+
+  async function loadCurrentCourier() {
+    state.currentCourier = null;
+    if (!isCourier()) return;
+    let data = null;
+    if (state.profile?.courier_id) {
+      const r = await state.sb.from("couriers").select("*").eq("id", state.profile.courier_id).maybeSingle();
+      if (!r.error) data = r.data;
+    }
+    if (!data) {
+      const r = await state.sb.from("couriers").select("*").eq("user_id", state.session.user.id).maybeSingle();
+      if (!r.error) data = r.data;
+    }
+    state.currentCourier = data || null;
+  }
+
+  async function loadOrders() {
+    try {
+      let q = state.sb.from("orders").select("*").order("created_at", { ascending: false }).limit(700);
+      if (isShop() && state.profile?.shop_id) q = q.eq("shop_id", state.profile.shop_id);
+      if (isCourier() && state.currentCourier?.id) q = q.eq("courier_id", state.currentCourier.id);
+      const { data, error } = await q;
+      if (error) throw error;
+      state.orders = data || [];
+    } catch (error) {
+      console.warn("[Wasalli orders]", error);
+      state.orders = [];
+    }
+  }
+
+  async function loadShops() {
+    if (isCourier() || isAccountant()) { state.shops = []; return; }
+    try {
+      let q = state.sb.from("shops").select("*").order("name", { ascending: true });
+      if (isShop() && state.profile?.shop_id) q = q.eq("id", state.profile.shop_id);
+      const { data, error } = await q;
+      if (error) throw error;
+      state.shops = data || [];
+    } catch (error) {
+      console.warn("[Wasalli shops]", error);
+      state.shops = [];
+    }
+  }
+
+  async function loadCouriers() {
+    try {
+      let q = state.sb.from("couriers").select("*").order("name", { ascending: true });
+      if (isCourier() && state.currentCourier?.id) q = q.eq("id", state.currentCourier.id);
+      const { data, error } = await q;
+      if (error) throw error;
+      state.couriers = data || [];
+    } catch (error) {
+      console.warn("[Wasalli couriers]", error);
+      state.couriers = [];
+    }
+  }
+
+  async function loadProfiles() {
+    if (!isAdmin()) { state.profiles = []; return; }
+    state.profiles = await loadTable("profiles", q => q.order("created_at", { ascending: false }).limit(500));
+  }
+
+  async function loadOffers() {
+    state.offers = [];
+    if (!isCourier() || !state.currentCourier?.id) return;
+    try {
+      const { data, error } = await state.sb.from("order_offers").select("*").eq("courier_id", state.currentCourier.id).eq("status", "offered").order("offered_at", { ascending: false });
+      if (error) throw error;
+      state.offers = data || [];
+    } catch (error) {
+      console.warn("[Wasalli offers]", error);
+    }
+  }
+
+  async function loadNotifications() {
+    try {
+      const { data, error } = await state.sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      const r = role();
+      state.notifications = (data || []).filter(n => {
+        if (n.user_id) return String(n.user_id) === String(state.session?.user?.id);
+        if (n.target_role) return n.target_role === r;
+        return isAdmin();
+      });
+    } catch (error) {
+      state.notifications = [];
+      console.warn("[Wasalli notifications]", error);
+    }
+    updateNotificationBadge();
+  }
+
+  async function loadFinance() {
+    if (!isFinanceUser()) { state.ledger = []; state.payments = []; state.expenses = []; return; }
+    const [ledger, payments, expenses] = await Promise.all([
+      loadTable("wasalli_financial_ledger", q => q.order("created_at", { ascending: false }).limit(1200)),
+      loadTable("wasalli_courier_payments", q => q.order("created_at", { ascending: false }).limit(500)),
+      loadTable("wasalli_expenses", q => q.order("created_at", { ascending: false }).limit(500))
+    ]);
+    state.ledger = ledger;
+    state.payments = payments;
+    state.expenses = expenses;
+  }
+
   async function loadAll(showMessage = false) {
     if (!state.profile) return;
-
     state.loading = true;
-
     try {
-      const jobs = [];
-
-      if (
-        isAdmin() ||
-        isOperations() ||
-        isShop() ||
-        isCourier()
-      ) {
-        jobs.push(loadOrders());
-      }
-
-      if (
-        isAdminOrOperations() ||
-        isShop()
-      ) {
-        jobs.push(loadShops());
-      }
-
-      if (
-        isAdminOrOperations()
-      ) {
-        jobs.push(loadCouriers());
-      }
-
-      if (isAdmin()) {
-        jobs.push(loadProfiles());
-      }
-
-      jobs.push(loadNotifications());
-
-      if (isCourier()) {
-        jobs.push(loadCurrentCourier());
-        jobs.push(loadCourierOffers());
-      }
-
-      if (isFinanceUser()) {
-        jobs.push(loadFinanceData());
-      }
-
+      await loadSettings();
+      if (isCourier()) await loadCurrentCourier();
+      const jobs = [loadOrders(), loadNotifications()];
+      if (!isCourier() && !isAccountant()) jobs.push(loadShops());
+      if (isAdminOrOperations() || isAccountant()) jobs.push(loadCouriers());
+      if (isCourier()) jobs.push(loadCouriers(), loadOffers());
+      if (isAdmin()) jobs.push(loadProfiles());
+      if (isFinanceUser()) jobs.push(loadFinance());
       await Promise.all(jobs);
-
-      if (showMessage) {
-        toast(
-          "تم تحديث البيانات."
-        );
-      }
+      if (showMessage) toast("تم تحديث البيانات.");
     } catch (error) {
-      console.error(error);
-
-      toast(
-        "حدث خطأ أثناء تحديث البيانات.",
-        "error"
-      );
+      console.error("[Wasalli loadAll]", error);
+      toast("تم تحميل النظام مع تعذر بعض البيانات.", "warning");
     } finally {
       state.loading = false;
     }
   }
 
-  async function loadOrders() {
-    let query =
-      sb
-        .from("orders")
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        )
-        .limit(500);
-
-    const { data, error } =
-      await query;
-
-    if (error) {
-      console.error(
-        "loadOrders",
-        error
-      );
-      return;
-    }
-
-    state.orders = data || [];
-  }
-
-  async function loadShops() {
-    const { data, error } =
-      await sb
-        .from("shops")
-        .select("*")
-        .order("name");
-
-    if (error) {
-      console.error(
-        "loadShops",
-        error
-      );
-      return;
-    }
-
-    state.shops = data || [];
-  }
-
-  async function loadCouriers() {
-    const { data, error } =
-      await sb
-        .from("couriers")
-        .select("*")
-        .order("name");
-
-    if (error) {
-      console.error(
-        "loadCouriers",
-        error
-      );
-      return;
-    }
-
-    state.couriers = data || [];
-  }
-
-  async function loadProfiles() {
-    const { data, error } =
-      await sb
-        .from("profiles")
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        );
-
-    if (error) {
-      console.error(
-        "loadProfiles",
-        error
-      );
-      return;
-    }
-
-    state.profiles = data || [];
-  }
-
-  async function loadNotifications() {
-    let query =
-      sb
-        .from("notifications")
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        )
-        .limit(100);
-
-    const { data, error } =
-      await query;
-
-    if (error) {
-      console.error(
-        "loadNotifications",
-        error
-      );
-      return;
-    }
-
-    const role = currentRole();
-
-    state.notifications =
-      (data || []).filter(item => {
-        if (item.user_id) {
-          return (
-            item.user_id ===
-            state.session?.user?.id
-          );
-        }
-
-        if (item.target_role) {
-          return (
-            item.target_role === role
-          );
-        }
-
-        return isAdmin();
-      });
-
-    updateNotificationBadge();
-  }
-
-  async function loadCurrentCourier() {
-    if (!isCourier()) {
-      state.currentCourier = null;
-      return;
-    }
-
-    let courier = null;
-
-    if (state.profile?.courier_id) {
-      const { data, error } =
-        await sb
-          .from("couriers")
-          .select("*")
-          .eq(
-            "id",
-            state.profile.courier_id
-          )
-          .maybeSingle();
-
-      if (!error) {
-        courier = data;
-      }
-    }
-
-    if (!courier) {
-      const { data, error } =
-        await sb
-          .from("couriers")
-          .select("*")
-          .eq(
-            "user_id",
-            state.session.user.id
-          )
-          .maybeSingle();
-
-      if (!error) {
-        courier = data;
-      }
-    }
-
-    state.currentCourier =
-      courier || null;
-  }
-
-  async function loadCourierOffers() {
-    if (!isCourier()) {
-      state.orderOffers = [];
-      return;
-    }
-
-    if (!state.currentCourier) {
-      await loadCurrentCourier();
-    }
-
-    if (!state.currentCourier) {
-      state.orderOffers = [];
-      return;
-    }
-
-    const { data, error } =
-      await sb
-        .from("order_offers")
-        .select(`
-          id,
-          order_id,
-          courier_id,
-          offer_stage,
-          status,
-          offered_at,
-          responded_at,
-          rejection_reason,
-          rejection_note,
-          expires_at,
-          expanded_at
-        `)
-        .eq(
-          "courier_id",
-          state.currentCourier.id
-        )
-        .eq("status", "offered")
-        .order(
-          "offered_at",
-          { ascending: false }
-        );
-
-    if (error) {
-      console.error(
-        "loadCourierOffers",
-        error
-      );
-
-      state.orderOffers = [];
-      return;
-    }
-
-    state.orderOffers =
-      data || [];
-
-    syncOfferSound();
-  }
-
-  async function loadFinanceData() {
-    if (!isFinanceUser()) {
-      return;
-    }
-
-    const [
-      ledgerResult,
-      paymentResult,
-      expenseResult
-    ] = await Promise.all([
-      sb
-        .from(
-          "wasalli_financial_ledger"
-        )
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        )
-        .limit(1000),
-
-      sb
-        .from(
-          "wasalli_courier_payments"
-        )
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        )
-        .limit(500),
-
-      sb
-        .from("wasalli_expenses")
-        .select("*")
-        .order(
-          "created_at",
-          { ascending: false }
-        )
-        .limit(500)
-    ]);
-
-    if (!ledgerResult.error) {
-      state.financialLedger =
-        ledgerResult.data || [];
-    }
-
-    if (!paymentResult.error) {
-      state.courierPayments =
-        paymentResult.data || [];
-    }
-
-    if (!expenseResult.error) {
-      state.expenses =
-        expenseResult.data || [];
-    }
-  }
-
   /* =========================================================
-     NOTIFICATION BADGE
+     NAVIGATION + ROUTER
      ========================================================= */
 
-  function updateNotificationBadge() {
-    const unread =
-      state.notifications.filter(
-        item => !item.is_read
-      ).length;
-
-    const badge =
-      $("#notificationBadge");
-
-    if (!badge) return;
-
-    badge.textContent =
-      unread > 99
-        ? "99+"
-        : String(unread);
-
-    badge.classList.toggle(
-      "hidden",
-      unread === 0
-    );
+  function renderNavigation() {
+    const nav = qs("#navList");
+    if (!nav) return;
+    const items = NAV[role()] || [];
+    nav.innerHTML = items.map(([page, icon, label]) => `
+      <button class="nav-item ${state.page === page ? "active" : ""}" type="button" data-page="${escapeHTML(page)}">
+        <span class="nav-icon">${icon}</span><span>${escapeHTML(label)}</span>
+      </button>
+    `).join("");
+    nav.querySelectorAll("[data-page]").forEach(btn => btn.addEventListener("click", () => {
+      state.page = btn.dataset.page;
+      closeSidebar();
+      renderNavigation();
+      renderPage();
+    }));
   }
 
-  /* =========================================================
-     ORDER HELPERS
-     ========================================================= */
-
-  function getShop(order) {
-    if (!order) return null;
-
-    return (
-      state.shops.find(
-        shop =>
-          String(shop.id) ===
-          String(order.shop_id)
-      ) || null
-    );
+  function canOpenPage(page) {
+    return (NAV[role()] || []).some(x => x[0] === page) || page === "dashboard";
   }
 
-  function getCourier(order) {
-    if (!order) return null;
-
-    return (
-      state.couriers.find(
-        courier =>
-          String(courier.id) ===
-          String(order.courier_id)
-      ) || null
-    );
-  }
-
-  function orderShopName(order) {
-    return (
-      getShop(order)?.name ||
-      order?.shop ||
-      "غير محدد"
-    );
-  }
-
-  function orderCourierName(order) {
-    return (
-      getCourier(order)?.name ||
-      order?.courier ||
-      "غير مسند"
-    );
-  }
-
-  function orderCustomerName(order) {
-    return (
-      order?.customer_name ||
-      order?.customer ||
-      "زبون"
-    );
-  }
-
-  function orderCustomerPhone(order) {
-    return (
-      order?.customer_phone ||
-      order?.phone ||
-      ""
-    );
-  }
-
-  function orderAddress(order) {
-    return (
-      order?.detailed_address ||
-      order?.delivery_address ||
-      order?.address ||
-      ""
-    );
-  }
-
-  function orderDeliveryFee(order) {
-    return safeNumber(
-      order?.delivery_fee ??
-      order?.fee ??
-      DEFAULT_DELIVERY_FEE
-    );
-  }
-
-  function orderPaymentMode(order) {
-    return (
-      order?.payment_mode ||
-      order?.payment_method ||
-      "cash"
-    );
-  }
-
-  function orderDeliveryPayer(order) {
-    return (
-      order?.delivery_fee_payer ||
-      order?.delivery_payer ||
-      "customer"
-    );
-  }
-
-  function orderPickupLat(order) {
-    return (
-      order?.pickup_lat ??
-      order?.pickup_latitude ??
-      getShop(order)?.lat ??
-      getShop(order)?.latitude ??
-      null
-    );
-  }
-
-  function orderPickupLng(order) {
-    return (
-      order?.pickup_lng ??
-      order?.pickup_longitude ??
-      getShop(order)?.lng ??
-      getShop(order)?.longitude ??
-      null
-    );
-  }
-
-  function orderCustomerLat(order) {
-    return (
-      order?.customer_lat ??
-      order?.latitude ??
-      null
-    );
-  }
-
-  function orderCustomerLng(order) {
-    return (
-      order?.customer_lng ??
-      order?.longitude ??
-      null
-    );
-  }
-
-  function isLateOrder(order) {
-    if (
-      !order ||
-      order.status !== "new" ||
-      order.courier_id
-    ) {
-      return false;
+  function renderPage() {
+    if (!state.profile?.is_active || role() === "pending") return;
+    if (!canOpenPage(state.page)) state.page = "dashboard";
+    renderNavigation();
+    switch (state.page) {
+      case "orders": return renderOrders();
+      case "shops": return renderShops();
+      case "couriers": return renderCouriers();
+      case "map": return renderMap();
+      case "pricing": return renderPricing();
+      case "accounts": return renderAccounts();
+      case "reports": return renderReports();
+      case "users": return renderUsers();
+      case "settings": return renderSettings();
+      default: return renderDashboard();
     }
-
-    const created =
-      new Date(
-        order.dispatch_started_at ||
-        order.created_at
-      ).getTime();
-
-    if (!Number.isFinite(created)) {
-      return false;
-    }
-
-    return (
-      Date.now() - created >=
-      LATE_ORDER_MINUTES *
-        60 *
-        1000
-    );
   }
 
-  function courierAssignedOrders() {
-    if (!state.currentCourier) {
-      return [];
-    }
-
-    return state.orders.filter(
-      order =>
-        String(order.courier_id) ===
-          String(
-            state.currentCourier.id
-          )
-    );
+  function renderLoading(message = "جاري التحميل...") {
+    const c = qs("#content");
+    if (c) c.innerHTML = `<div class="loading-card">${escapeHTML(message)}</div>`;
   }
 
-  function courierActiveOrders() {
-    return courierAssignedOrders()
-      .filter(order =>
-        ACTIVE_ORDER_STATUSES.includes(
-          order.status
-        )
-      );
+  function stat(icon, label, value, extra = "") {
+    return `<div class="stat-card"><div class="stat-icon">${icon}</div><div><small>${escapeHTML(label)}</small><strong>${escapeHTML(value)}</strong>${extra ? `<div class="muted" style="font-size:11px;margin-top:3px">${escapeHTML(extra)}</div>` : ""}</div></div>`;
   }
-
-  function todayStart() {
-    const date = new Date();
-
-    date.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    return date;
-  }
-
-  function isToday(value) {
-    if (!value) return false;
-
-    return (
-      new Date(value).getTime() >=
-      todayStart().getTime()
-    );
-  }
-
-  function courierTodayOrders() {
-    return courierAssignedOrders()
-      .filter(order =>
-        isToday(order.created_at)
-      );
-  }
-
-  function courierTodayEarnings() {
-    return courierTodayOrders()
-      .filter(order =>
-        ["delivered", "returned"]
-          .includes(order.status)
-      )
-      .reduce(
-        (total, order) =>
-          total +
-          orderDeliveryFee(order) *
-            (COURIER_PERCENT / 100),
-        0
-      );
-  }
-
-  function calculateAmountToCollect(order) {
-    if (!order) return 0;
-
-    if (
-      safeNumber(
-        order.courier_collection_amount
-      ) > 0
-    ) {
-      return safeNumber(
-        order.courier_collection_amount
-      );
-    }
-
-    if (
-      safeNumber(
-        order.amount_to_collect
-      ) > 0
-    ) {
-      return safeNumber(
-        order.amount_to_collect
-      );
-    }
-
-    const goods =
-      safeNumber(order.goods_value);
-
-    const delivery =
-      orderDeliveryFee(order);
-
-    const mode =
-      orderPaymentMode(order);
-
-    const payer =
-      orderDeliveryPayer(order);
-
-    if (
-      mode === "prepaid" ||
-      mode === "electronic"
-    ) {
-      return 0;
-    }
-
-    if (payer === "shop") {
-      return goods;
-    }
-
-    if (payer === "customer") {
-      return goods + delivery;
-    }
-
-    return goods + delivery;
-  }
-
-  function courierCashLiability() {
-    return courierAssignedOrders()
-      .filter(order =>
-        ["delivered", "returned"]
-          .includes(order.status)
-      )
-      .reduce(
-        (total, order) =>
-          total +
-          safeNumber(
-            order.courier_collection_amount ||
-            order.amount_to_collect ||
-            calculateAmountToCollect(order)
-          ),
-        0
-      );
-  }
-
-  /* =========================================================
-     STATUS BADGES
-     ========================================================= */
 
   function statusBadge(status) {
     let cls = "badge-info";
-
-    if (status === "new") {
-      cls = "badge-new";
-    }
-
-    if (
-      status === "delivered"
-    ) {
-      cls = "badge-success";
-    }
-
-    if (
-      status === "returned"
-    ) {
-      cls = "badge-warning";
-    }
-
-    if (
-      status === "cancelled"
-    ) {
-      cls = "badge-danger";
-    }
-
-    return `
-      <span
-        class="wasalli-badge ${cls}"
-      >
-        ${escapeHTML(
-          statusLabel(status)
-        )}
-      </span>
-    `;
+    if (status === "new") cls = "badge-new";
+    if (status === "delivered") cls = "badge-ok";
+    if (status === "returned") cls = "badge-warn";
+    if (status === "cancelled") cls = "badge-danger";
+    return `<span class="badge ${cls}">${escapeHTML(statusLabel(status))}</span>`;
   }
 
   /* =========================================================
-     REALTIME
-     ========================================================= */
-
-  function stopRealtime() {
-    if (state.realtimeChannel) {
-      try {
-        sb.removeChannel(
-          state.realtimeChannel
-        );
-      } catch (error) {
-        console.warn(error);
-      }
-    }
-
-    state.realtimeChannel = null;
-  }
-
-  function startRealtime() {
-    stopRealtime();
-
-    if (!state.session) return;
-
-    const channel =
-      sb.channel(
-        "wasalli-live-" +
-        state.session.user.id
-      );
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "orders"
-      },
-      async payload => {
-        await loadOrders();
-
-        if (
-          isCourier() &&
-          payload.eventType === "UPDATE"
-        ) {
-          await loadCourierOffers();
-        }
-
-        renderPage();
-      }
-    );
-
-    if (isCourier()) {
-      channel.on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "order_offers",
-          filter:
-            `courier_id=eq.${state.currentCourier?.id || ""}`
-        },
-        async () => {
-          const previous =
-            state.orderOffers.length;
-
-          await loadCourierOffers();
-
-          if (
-            state.orderOffers.length >
-            previous
-          ) {
-            playOfferTone();
-            toast(
-              "عندك عرض توصيل جديد.",
-              "success"
-            );
-          }
-
-          renderPage();
-        }
-      );
-    }
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "notifications"
-      },
-      async () => {
-        await loadNotifications();
-      }
-    );
-
-    state.realtimeChannel =
-      channel.subscribe();
-  }
-
-  /* =========================================================
-     OFFER SOUND
-     ========================================================= */
-
-  function playOfferTone() {
-    try {
-      const audio =
-        $("#notificationSound");
-
-      if (audio) {
-        audio.currentTime = 0;
-
-        audio.play().catch(
-          () => synthOfferTone()
-        );
-
-        return;
-      }
-
-      synthOfferTone();
-    } catch {
-      synthOfferTone();
-    }
-  }
-
-  function synthOfferTone() {
-    try {
-      const AudioContext =
-        window.AudioContext ||
-        window.webkitAudioContext;
-
-      if (!AudioContext) return;
-
-      const ctx =
-        new AudioContext();
-
-      const oscillator =
-        ctx.createOscillator();
-
-      const gain =
-        ctx.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.value =
-        740;
-
-      gain.gain.setValueAtTime(
-        0.0001,
-        ctx.currentTime
-      );
-
-      gain.gain.exponentialRampToValueAtTime(
-        0.18,
-        ctx.currentTime + 0.02
-      );
-
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        ctx.currentTime + 0.45
-      );
-
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscillator.start();
-
-      oscillator.stop(
-        ctx.currentTime + 0.48
-      );
-    } catch {
-      // تجاهل خطأ الصوت
-    }
-  }
-
-  function startOfferSound() {
-    if (state.offerSoundTimer) {
-      return;
-    }
-
-    playOfferTone();
-
-    state.offerSoundTimer =
-      setInterval(
-        () => {
-          if (
-            state.orderOffers.length
-          ) {
-            playOfferTone();
-          } else {
-            stopOfferSound();
-          }
-        },
-        4500
-      );
-  }
-
-  function stopOfferSound() {
-    if (state.offerSoundTimer) {
-      clearInterval(
-        state.offerSoundTimer
-      );
-    }
-
-    state.offerSoundTimer = null;
-  }
-
-  function syncOfferSound() {
-    if (
-      isCourier() &&
-      state.orderOffers.length > 0
-    ) {
-      startOfferSound();
-    } else {
-      stopOfferSound();
-    }
-  }
-
-  /* =========================================================
-     DISPATCH TIMER
-     ========================================================= */
-
-  function startDispatchTimer() {
-    stopDispatchTimer();
-
-    runDispatchTick();
-
-    state.dispatchTimer =
-      setInterval(
-        runDispatchTick,
-        15000
-      );
-  }
-
-  function stopDispatchTimer() {
-    if (state.dispatchTimer) {
-      clearInterval(
-        state.dispatchTimer
-      );
-    }
-
-    state.dispatchTimer = null;
-  }
-
-  async function runDispatchTick() {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    try {
-      await Promise.all([
-        sb.rpc(
-          "wasalli_expand_dispatch"
-        ),
-        sb.rpc(
-          "wasalli_check_late_orders"
-        )
-      ]);
-    } catch (error) {
-      console.warn(
-        "Dispatch tick:",
-        error
-      );
-    }
-  }
-
-  /* =========================================================
-     COURIER LOCATION
-     ========================================================= */
-
-  function getCurrentPosition() {
-    return new Promise(
-      (resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(
-            new Error(
-              "الموقع غير مدعوم على هذا الجهاز."
-            )
-          );
-          return;
-        }
-
-        navigator.geolocation
-          .getCurrentPosition(
-            resolve,
-            reject,
-            {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 10000
-            }
-          );
-      }
-    );
-  }
-
-  function startLocationTracking() {
-    stopLocationTracking();
-
-    if (
-      !isCourier() ||
-      !state.currentCourier?.is_on_shift
-    ) {
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      toast(
-        "المتصفح لا يدعم تحديد الموقع.",
-        "warning"
-      );
-      return;
-    }
-
-    state.locationWatchId =
-      navigator.geolocation.watchPosition(
-        async position => {
-          const {
-            latitude,
-            longitude,
-            accuracy
-          } = position.coords;
-
-          const { error } =
-            await sb.rpc(
-              "wasalli_update_location",
-              {
-                p_latitude:
-                  latitude,
-                p_longitude:
-                  longitude,
-                p_accuracy:
-                  accuracy || null
-              }
-            );
-
-          if (error) {
-            console.warn(
-              "Location update:",
-              error
-            );
-          } else if (
-            state.currentCourier
-          ) {
-            state.currentCourier.latitude =
-              latitude;
-
-            state.currentCourier.longitude =
-              longitude;
-
-            state.currentCourier.last_location_at =
-              new Date().toISOString();
-          }
-        },
-        error => {
-          console.warn(
-            "Location watch:",
-            error
-          );
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 15000,
-          timeout: 20000
-        }
-      );
-  }
-
-  function stopLocationTracking() {
-    if (
-      state.locationWatchId !== null &&
-      navigator.geolocation
-    ) {
-      navigator.geolocation
-        .clearWatch(
-          state.locationWatchId
-        );
-    }
-
-    state.locationWatchId = null;
-  }
-
-  /* =========================================================
-     COURIER SHIFT ACTIONS
-     ========================================================= */
-
-  async function startCourierShift() {
-    try {
-      let lat = null;
-      let lng = null;
-
-      try {
-        const position =
-          await getCurrentPosition();
-
-        lat =
-          position.coords.latitude;
-
-        lng =
-          position.coords.longitude;
-      } catch (error) {
-        console.warn(error);
-
-        const proceed =
-          await confirmAction(
-            "تعذر الحصول على موقعك. هل تريد بدء الدوام بدون إرسال الموقع الأولي؟",
-            "بدء الدوام"
-          );
-
-        if (!proceed) {
-          return;
-        }
-      }
-
-      const { error } =
-        await sb.rpc(
-          "wasalli_start_shift",
-          {
-            p_latitude: lat,
-            p_longitude: lng
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadCurrentCourier();
-      await loadCourierOffers();
-
-      startLocationTracking();
-
-      renderPage();
-
-      toast(
-        "تم بدء الدوام وأصبحت متاحاً للطلبات."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر بدء الدوام: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  async function endCourierShift() {
-    const confirmed =
-      await confirmAction(
-        "إنهاء الدوام سيوقف استقبال الطلبات ومشاركة الموقع.",
-        "إنهاء الدوام"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      let lat = null;
-      let lng = null;
-
-      try {
-        const position =
-          await getCurrentPosition();
-
-        lat =
-          position.coords.latitude;
-
-        lng =
-          position.coords.longitude;
-      } catch {
-        // يمكن إنهاء الدوام بدون GPS
-      }
-
-      const { error } =
-        await sb.rpc(
-          "wasalli_end_shift",
-          {
-            p_latitude: lat,
-            p_longitude: lng
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      stopLocationTracking();
-      stopOfferSound();
-
-      await loadCurrentCourier();
-      await loadCourierOffers();
-
-      renderPage();
-
-      toast("تم إنهاء الدوام.");
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر إنهاء الدوام: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  async function setCourierAvailability(
-    available
-  ) {
-    try {
-      const { error } =
-        await sb.rpc(
-          "wasalli_set_availability",
-          {
-            p_available:
-              Boolean(available)
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadCurrentCourier();
-      await loadCourierOffers();
-
-      renderPage();
-
-      toast(
-        available
-          ? "أصبحت متاحاً لاستقبال الطلبات."
-          : "تم إيقاف استقبال الطلبات مؤقتاً."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        error.message ||
-          "تعذر تغيير حالة التوفر.",
-        "error"
-      );
-    }
-  }
-
-  /* =========================================================
-     PAGE ROUTER
-     ========================================================= */
-
-  function renderPage() {
-    if (
-      !state.profile ||
-      !isActiveProfile()
-    ) {
-      return;
-    }
-
-    renderNavigation();
-
-    switch (state.page) {
-      case "dashboard":
-        renderDashboard();
-        break;
-
-      case "orders":
-        renderOrders();
-        break;
-
-      case "shops":
-        renderShops();
-        break;
-
-      case "couriers":
-        renderCouriers();
-        break;
-
-      case "map":
-        renderMap();
-        break;
-
-      case "pricing":
-        renderPricing();
-        break;
-
-      case "accounts":
-        renderAccounts();
-        break;
-
-      case "reports":
-        renderReports();
-        break;
-
-      case "users":
-        renderUsers();
-        break;
-
-      case "settings":
-        renderSettings();
-        break;
-
-      default:
-        state.page = "dashboard";
-        renderDashboard();
-        break;
-    }
-  }
-
-  /* =========================================================
-     DASHBOARD ROUTER
+     DASHBOARDS
      ========================================================= */
 
   function renderDashboard() {
-    if (isCourier()) {
-      renderCourierDashboard();
-      return;
-    }
-
-    if (isAccountant()) {
-      renderFinanceDashboard();
-      return;
-    }
-
-    if (isShop()) {
-      renderShopDashboard();
-      return;
-    }
-
-    renderManagementDashboard();
+    if (isCourier()) return renderCourierDashboard();
+    if (isAccountant()) return renderFinanceDashboard();
+    if (isShop()) return renderShopDashboard();
+    return renderManagementDashboard();
   }
-    /* =========================================================
-     MANAGEMENT DASHBOARD
-     ========================================================= */
 
   function renderManagementDashboard() {
-    if (!isAdminOrOperations()) {
-      state.page = "dashboard";
-      renderDashboard();
-      return;
-    }
+    setPageTitle(isOperations() ? "لوحة العمليات" : "لوحة التحكم", "نظرة مباشرة على عمليات وصلّي");
+    const total = state.orders.length;
+    const newCount = state.orders.filter(o => o.status === "new").length;
+    const active = state.orders.filter(o => ACTIVE_STATUSES.includes(o.status)).length;
+    const delivered = state.orders.filter(o => o.status === "delivered" && isToday(o.delivered_at || o.updated_at || o.created_at)).length;
+    const returned = state.orders.filter(o => o.status === "returned" && isToday(o.returned_at || o.updated_at || o.created_at)).length;
+    const onShift = state.couriers.filter(c => c.is_on_shift).length;
+    const available = state.couriers.filter(c => c.is_on_shift && (c.is_available || c.status === "available")).length;
+    const late = state.orders.filter(isLate).length;
+    const recent = state.orders.slice(0, 12);
 
-    setTitle(
-      isAdmin()
-        ? "لوحة التحكم"
-        : "لوحة العمليات",
-      "نظرة مباشرة على عمليات وصلّي"
-    );
-
-    const totalOrders =
-      state.orders.length;
-
-    const newOrders =
-      state.orders.filter(
-        order => order.status === "new"
-      ).length;
-
-    const activeOrders =
-      state.orders.filter(order =>
-        ACTIVE_ORDER_STATUSES.includes(
-          order.status
-        )
-      ).length;
-
-    const deliveredToday =
-      state.orders.filter(
-        order =>
-          order.status === "delivered" &&
-          isToday(order.delivered_at)
-      ).length;
-
-    const returnedToday =
-      state.orders.filter(
-        order =>
-          order.status === "returned" &&
-          isToday(
-            order.returned_at ||
-            order.updated_at
-          )
-      ).length;
-
-    const lateOrders =
-      state.orders.filter(
-        isLateOrder
-      );
-
-    const availableCouriers =
-      state.couriers.filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at &&
-          courier.is_on_shift &&
-          (
-            courier.status ===
-              "available" ||
-            courier.is_available === true
-          )
-      ).length;
-
-    const onShiftCouriers =
-      state.couriers.filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at &&
-          courier.is_on_shift
-      ).length;
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
+    qs("#content").innerHTML = `
       <div class="stats-grid">
-        ${dashboardStat(
-          "📦",
-          "إجمالي الطلبات",
-          totalOrders
-        )}
-
-        ${dashboardStat(
-          "🆕",
-          "طلبات جديدة",
-          newOrders
-        )}
-
-        ${dashboardStat(
-          "🛵",
-          "طلبات نشطة",
-          activeOrders
-        )}
-
-        ${dashboardStat(
-          "✅",
-          "تسليم اليوم",
-          deliveredToday
-        )}
-
-        ${dashboardStat(
-          "↩️",
-          "راجع اليوم",
-          returnedToday
-        )}
-
-        ${dashboardStat(
-          "📍",
-          "مندوبون بالدوام",
-          onShiftCouriers
-        )}
-
-        ${dashboardStat(
-          "🟢",
-          "متاحون الآن",
-          availableCouriers
-        )}
-
-        ${dashboardStat(
-          "⚠️",
-          "طلبات متأخرة",
-          lateOrders.length,
-          lateOrders.length
-            ? "danger"
-            : ""
-        )}
+        ${stat("📦", "إجمالي الطلبات", total)}
+        ${stat("🆕", "طلبات جديدة", newCount)}
+        ${stat("🚚", "طلبات نشطة", active)}
+        ${stat("✅", "تسليم اليوم", delivered)}
+        ${stat("↩", "راجع اليوم", returned)}
+        ${stat("🛵", "مندوبون بالدوام", onShift)}
+        ${stat("🟢", "متاحون الآن", available)}
+        ${stat("⚠", "طلبات متأخرة", late)}
       </div>
-
-      ${
-        lateOrders.length
-          ? `
-            <div class="card late-order-card">
-              <div class="card-header">
-                <div>
-                  <h2>⚠️ طلبات تحتاج تدخل</h2>
-                  <p>
-                    لم يقبلها أي مندوب منذ أكثر من
-                    ${LATE_ORDER_MINUTES}
-                    دقائق
-                  </p>
-                </div>
-
-                <button
-                  class="btn btn-primary"
-                  id="viewLateOrders"
-                >
-                  عرض الطلبات
-                </button>
-              </div>
-
-              <div class="simple-list">
-                ${lateOrders
-                  .slice(0, 8)
-                  .map(
-                    order => `
-                      <button
-                        type="button"
-                        class="simple-list-item"
-                        data-open-order="${order.id}"
-                      >
-                        <strong>
-                          ${escapeHTML(
-                            orderCode(order)
-                          )}
-                        </strong>
-
-                        <span>
-                          ${escapeHTML(
-                            orderShopName(order)
-                          )}
-                          ←
-                          ${escapeHTML(
-                            order.delivery_area ||
-                            orderAddress(order) ||
-                            "غير محدد"
-                          )}
-                        </span>
-
-                        <span>
-                          ${dateTime(
-                            order.created_at
-                          )}
-                        </span>
-                      </button>
-                    `
-                  )
-                  .join("")}
-              </div>
-            </div>
-          `
-          : ""
-      }
-
       <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>آخر الطلبات</h2>
-            <p>
-              أحدث حركة تشغيلية في وصلّي
-            </p>
-          </div>
+        <div class="card-header"><div><h2>آخر الطلبات</h2><p>أحدث حركة تشغيلية</p></div><div class="page-actions"><button id="dashNewOrder" class="primary-btn">+ طلب جديد</button><button id="dashAllOrders" class="ghost-btn">كل الطلبات</button></div></div>
+        ${ordersTable(recent)}
+        ${ordersMobile(recent)}
+      </div>`;
 
-          <button
-            class="btn btn-primary"
-            id="dashboardNewOrder"
-          >
-            + طلب جديد
-          </button>
-        </div>
-
-        ${managementOrdersTable(
-          state.orders.slice(0, 12)
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>حالة المندوبين</h2>
-            <p>
-              الدوام والتوفر والطلبات النشطة
-            </p>
-          </div>
-
-          <button
-            class="btn btn-ghost"
-            id="dashboardCouriers"
-          >
-            كل المندوبين
-          </button>
-        </div>
-
-        <div class="courier-overview-grid">
-          ${state.couriers
-            .filter(
-              courier =>
-                courier.is_active !== false &&
-                !courier.archived_at
-            )
-            .slice(0, 12)
-            .map(courierOverviewCard)
-            .join("") ||
-            `
-              <div class="empty-state">
-                لا يوجد مندوبون.
-              </div>
-            `}
-        </div>
-      </div>
-    `;
-
-    $("#dashboardNewOrder")
-      ?.addEventListener(
-        "click",
-        openNewOrderModal
-      );
-
-    $("#viewLateOrders")
-      ?.addEventListener(
-        "click",
-        () => {
-          state.page = "orders";
-          renderPage();
-        }
-      );
-
-    $("#dashboardCouriers")
-      ?.addEventListener(
-        "click",
-        () => {
-          state.page = "couriers";
-          renderPage();
-        }
-      );
-
+    qs("#dashNewOrder")?.addEventListener("click", openNewOrderModal);
+    qs("#dashAllOrders")?.addEventListener("click", () => { state.page = "orders"; renderPage(); });
     bindOrderOpenButtons();
   }
-
-  function dashboardStat(
-    icon,
-    label,
-    value,
-    type = ""
-  ) {
-    return `
-      <div class="stat-card ${
-        type
-          ? `stat-${type}`
-          : ""
-      }">
-        <div class="stat-icon">
-          ${icon}
-        </div>
-
-        <div>
-          <span>${escapeHTML(label)}</span>
-          <strong>
-            ${escapeHTML(value)}
-          </strong>
-        </div>
-      </div>
-    `;
-  }
-
-  function courierOverviewCard(
-    courier
-  ) {
-    const active =
-      state.orders.filter(
-        order =>
-          String(order.courier_id) ===
-            String(courier.id) &&
-          ACTIVE_ORDER_STATUSES.includes(
-            order.status
-          )
-      ).length;
-
-    const available =
-      courier.is_on_shift &&
-      (
-        courier.status ===
-          "available" ||
-        courier.is_available === true
-      );
-
-    return `
-      <div class="courier-overview-card">
-        <div class="courier-overview-head">
-          <div>
-            <strong>
-              ${escapeHTML(
-                courier.name ||
-                "مندوب"
-              )}
-            </strong>
-
-            <small>
-              ${escapeHTML(
-                courier.area ||
-                "كربلاء"
-              )}
-            </small>
-          </div>
-
-          <span
-            class="wasalli-badge ${
-              available
-                ? "badge-success"
-                : courier.is_on_shift
-                  ? "badge-warning"
-                  : ""
-            }"
-          >
-            ${
-              available
-                ? "متاح"
-                : courier.is_on_shift
-                  ? "غير متاح"
-                  : "خارج الدوام"
-            }
-          </span>
-        </div>
-
-        <div class="courier-overview-footer">
-          <span>
-            طلبات نشطة:
-            <strong>${active}</strong>
-          </span>
-
-          ${
-            courier.last_location_at
-              ? `
-                <span>
-                  آخر موقع:
-                  ${shortTime(
-                    courier.last_location_at
-                  )}
-                </span>
-              `
-              : ""
-          }
-        </div>
-      </div>
-    `;
-  }
-
-  /* =========================================================
-     SHOP DASHBOARD
-     ========================================================= */
 
   function renderShopDashboard() {
-    setTitle(
-      "لوحة المحل",
-      "طلبات المحل وحالته المالية"
-    );
-
-    const orders =
-      state.orders || [];
-
-    const today =
-      orders.filter(order =>
-        isToday(order.created_at)
-      );
-
-    const active =
-      orders.filter(order =>
-        [
-          "new",
-          ...ACTIVE_ORDER_STATUSES
-        ].includes(order.status)
-      );
-
-    const delivered =
-      orders.filter(
-        order =>
-          order.status === "delivered"
-      );
-
-    const returned =
-      orders.filter(
-        order =>
-          order.status === "returned"
-      );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="stats-grid">
-        ${dashboardStat(
-          "📦",
-          "طلبات اليوم",
-          today.length
-        )}
-
-        ${dashboardStat(
-          "🛵",
-          "قيد التنفيذ",
-          active.length
-        )}
-
-        ${dashboardStat(
-          "✅",
-          "تم التسليم",
-          delivered.length
-        )}
-
-        ${dashboardStat(
-          "↩️",
-          "راجع",
-          returned.length
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>الطلبات الأخيرة</h2>
-            <p>
-              آخر طلبات المحل
-            </p>
-          </div>
-
-          <button
-            class="btn btn-primary"
-            id="shopNewOrder"
-          >
-            + طلب جديد
-          </button>
-        </div>
-
-        ${shopOrdersList(
-          orders.slice(0, 15)
-        )}
-      </div>
-    `;
-
-    $("#shopNewOrder")
-      ?.addEventListener(
-        "click",
-        openNewOrderModal
-      );
-
+    setPageTitle("لوحة التحكم", "ملخص طلبات المحل");
+    const delivered = state.orders.filter(o => o.status === "delivered").length;
+    const active = state.orders.filter(o => ACTIVE_STATUSES.includes(o.status) || o.status === "new").length;
+    const returned = state.orders.filter(o => o.status === "returned").length;
+    qs("#content").innerHTML = `
+      <div class="stats-grid">${stat("📦","إجمالي الطلبات",state.orders.length)}${stat("🚚","قيد التنفيذ",active)}${stat("✅","تم التسليم",delivered)}${stat("↩","راجع",returned)}</div>
+      <div class="card"><div class="card-header"><div><h2>آخر طلباتي</h2></div><button id="shopNewOrder" class="primary-btn">+ طلب جديد</button></div>${ordersTable(state.orders.slice(0,15))}${ordersMobile(state.orders.slice(0,15))}</div>`;
+    qs("#shopNewOrder")?.addEventListener("click", openNewOrderModal);
     bindOrderOpenButtons();
   }
 
-  /* =========================================================
-     COURIER DASHBOARD
-     ========================================================= */
+  function courierAssignedOrders() {
+    if (!state.currentCourier) return state.orders;
+    return state.orders.filter(o => String(o.courier_id) === String(state.currentCourier.id));
+  }
 
   function renderCourierDashboard() {
-    setTitle(
-      "وصلّي",
-      "واجهة المندوب"
-    );
+    setPageTitle("الرئيسية", "واجهة المندوب");
+    const courier = state.currentCourier;
+    const orders = courierAssignedOrders();
+    const active = orders.filter(o => ACTIVE_STATUSES.includes(o.status));
+    const today = orders.filter(o => isToday(o.created_at));
+    const delivered = today.filter(o => o.status === "delivered").length;
+    const returned = today.filter(o => o.status === "returned").length;
+    const earnings = today.filter(o => ["delivered", "returned"].includes(o.status)).reduce((s,o) => s + orderFee(o) * courierPercent()/100, 0);
+    const cash = orders.filter(o => ["delivered","returned"].includes(o.status)).reduce((s,o) => s + amountToCollect(o), 0);
+    const onShift = Boolean(courier?.is_on_shift);
+    const available = Boolean(courier?.is_available || courier?.status === "available");
 
-    const courier =
-      state.currentCourier;
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    if (!courier) {
-      content.innerHTML = `
-        <div class="card">
-          <div class="empty-state">
-            حسابك غير مربوط بسجل مندوب.
-            تواصل مع الإدارة.
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    const assigned =
-      courierAssignedOrders();
-
-    const active =
-      courierActiveOrders();
-
-    const today =
-      courierTodayOrders();
-
-    const deliveredToday =
-      today.filter(
-        order =>
-          order.status ===
-          "delivered"
-      ).length;
-
-    const returnedToday =
-      today.filter(
-        order =>
-          order.status ===
-          "returned"
-      ).length;
-
-    const earnings =
-      courierTodayEarnings();
-
-    const cash =
-      courierCashLiability();
-
-    const onShift =
-      Boolean(courier.is_on_shift);
-
-    const available =
-      onShift &&
-      (
-        courier.status ===
-          "available" ||
-        courier.is_available === true
-      );
-
-    content.innerHTML = `
-      <div class="courier-mobile-shell">
-
-        <section class="courier-shift-card">
-          <div class="shift-top">
-            <div>
-              <small>حالة الدوام</small>
-
-              <h2>
-                ${
-                  onShift
-                    ? "أنت بالدوام"
-                    : "خارج الدوام"
-                }
-              </h2>
-            </div>
-
-            <span class="shift-status">
-              <span
-                class="shift-dot ${
-                  onShift
-                    ? "live"
-                    : ""
-                }"
-              ></span>
-
-              ${
-                onShift
-                  ? available
-                    ? "متاح"
-                    : "متوقف مؤقتاً"
-                  : "متوقف"
-              }
-            </span>
-          </div>
-
-          ${
-            onShift
-              ? `
-                <button
-                  type="button"
-                  class="courier-primary-action"
-                  id="endShiftBtn"
-                >
-                  إنهاء الدوام
-                </button>
-
-                <div class="courier-availability">
-                  <button
-                    type="button"
-                    class="btn ${
-                      available
-                        ? "btn-primary"
-                        : "btn-ghost"
-                    }"
-                    id="makeAvailableBtn"
-                  >
-                    🟢 متاح
-                  </button>
-
-                  <button
-                    type="button"
-                    class="btn ${
-                      !available
-                        ? "btn-primary"
-                        : "btn-ghost"
-                    }"
-                    id="makeUnavailableBtn"
-                  >
-                    ⏸ غير متاح
-                  </button>
-                </div>
-              `
-              : `
-                <button
-                  type="button"
-                  class="courier-primary-action"
-                  id="startShiftBtn"
-                >
-                  بدء الدوام
-                </button>
-              `
-          }
-
-          ${
-            courier.last_location_at
-              ? `
-                <small
-                  style="
-                    display:block;
-                    margin-top:10px;
-                    opacity:.82
-                  "
-                >
-                  آخر تحديث للموقع:
-                  ${dateTime(
-                    courier.last_location_at
-                  )}
-                </small>
-              `
-              : ""
-          }
-        </section>
-
-        <div class="courier-stats-grid">
-          <div class="courier-stat">
-            <span>طلبات اليوم</span>
-            <strong>${today.length}</strong>
-          </div>
-
-          <div class="courier-stat">
-            <span>طلبات نشطة</span>
-            <strong>${active.length}</strong>
-          </div>
-
-          <div class="courier-stat">
-            <span>تم التسليم</span>
-            <strong>${deliveredToday}</strong>
-          </div>
-
-          <div class="courier-stat">
-            <span>راجع</span>
-            <strong>${returnedToday}</strong>
-          </div>
-
-          <div class="courier-stat">
-            <span>أرباح اليوم</span>
-            <strong>
-              ${money(earnings)}
-            </strong>
-          </div>
-
-          <div class="courier-stat">
-            <span>الكاش بالعهدة</span>
-            <strong>
-              ${money(cash)}
-            </strong>
-          </div>
-        </div>
-
-        ${
-          state.orderOffers.length
-            ? `
-              <div class="mobile-section-title">
-                <h2>
-                  🔔 طلبات جديدة
-                </h2>
-
-                <span
-                  class="wasalli-badge badge-info"
-                >
-                  ${state.orderOffers.length}
-                </span>
-              </div>
-
-              <div id="courierOffersList">
-                ${state.orderOffers
-                  .map(renderCourierOfferCard)
-                  .join("")}
-              </div>
-            `
-            : `
-              <div class="card">
-                <div class="empty-state">
-                  ${
-                    !onShift
-                      ? "ابدأ الدوام حتى تستقبل الطلبات."
-                      : !available
-                        ? "أنت غير متاح حالياً. فعّل التوفر لاستقبال الطلبات."
-                        : "لا توجد عروض توصيل جديدة حالياً."
-                  }
-                </div>
-              </div>
-            `
-        }
-
-        ${
-          active.length
-            ? `
-              <div class="mobile-section-title">
-                <h2>
-                  طلبي الحالي
-                </h2>
-
-                <span
-                  class="wasalli-badge badge-success"
-                >
-                  ${active.length}
-                </span>
-              </div>
-
-              ${active
-                .map(
-                  renderCourierCurrentOrderCard
-                )
-                .join("")}
-            `
-            : ""
-        }
-
-        <div class="mobile-section-title">
-          <h2>آخر طلباتي</h2>
-        </div>
-
-        ${
-          assigned.length
-            ? assigned
-                .filter(
-                  order =>
-                    !ACTIVE_ORDER_STATUSES.includes(
-                      order.status
-                    )
-                )
-                .slice(0, 10)
-                .map(
-                  renderCourierHistoryCard
-                )
-                .join("") ||
-              `
-                <div class="card">
-                  <div class="empty-state">
-                    لا توجد طلبات مكتملة بعد.
-                  </div>
-                </div>
-              `
-            : `
-              <div class="card">
-                <div class="empty-state">
-                  لا توجد طلبات مسندة إليك بعد.
-                </div>
-              </div>
-            `
-        }
+    qs("#content").innerHTML = `
+      <div class="courier-hero">
+        <div class="card-header" style="margin:0"><div><h2 style="margin:0">${escapeHTML(courier?.name || state.profile?.full_name || "مندوب")}</h2><p style="color:rgba(255,255,255,.8)">${escapeHTML(courier?.area || setting("city", DEFAULTS.city))}</p></div><span class="badge">${onShift ? (available ? "🟢 متاح" : "⏸ غير متاح") : "⛔ خارج الدوام"}</span></div>
+        <div class="actions">${onShift ? `<button id="endShift" class="ghost-btn">إنهاء الدوام</button><button id="toggleAvailability" class="secondary-btn">${available ? "إيقاف استقبال الطلبات" : "أصبح متاحاً"}</button>` : `<button id="startShift" class="ghost-btn">بدء الدوام</button>`}</div>
       </div>
+      <div class="stats-grid" style="margin-top:14px">${stat("📦","طلبات اليوم",today.length)}${stat("🚚","نشطة",active.length)}${stat("✅","تسليم",delivered)}${stat("↩","راجع",returned)}${stat("💰","أرباح اليوم",money(earnings))}${stat("💵","الكاش بالعهدة",money(cash))}</div>
+      ${state.offers.length ? `<div class="section-title"><h2>🔔 عروض توصيل جديدة</h2><span class="badge badge-info">${state.offers.length}</span></div><div>${state.offers.map(renderOfferCard).join("")}</div>` : `<div class="card"><div class="empty">${!onShift ? "ابدأ الدوام لاستقبال الطلبات." : !available ? "فعّل التوفر لاستقبال الطلبات." : "لا توجد عروض جديدة حالياً."}</div></div>`}
+      ${active.length ? `<div class="section-title"><h2>الطلبات الحالية</h2></div><div class="entity-grid">${active.map(renderCourierOrderCard).join("")}</div>` : ""}
+      <div class="section-title"><h2>آخر الطلبات</h2></div>${ordersMobile(orders.slice(0,12), true)}
     `;
 
-    $("#startShiftBtn")
-      ?.addEventListener(
-        "click",
-        startCourierShift
-      );
-
-    $("#endShiftBtn")
-      ?.addEventListener(
-        "click",
-        endCourierShift
-      );
-
-    $("#makeAvailableBtn")
-      ?.addEventListener(
-        "click",
-        () =>
-          setCourierAvailability(true)
-      );
-
-    $("#makeUnavailableBtn")
-      ?.addEventListener(
-        "click",
-        () =>
-          setCourierAvailability(false)
-      );
-
-    bindCourierOfferActions();
+    qs("#startShift")?.addEventListener("click", () => setCourierShift(true));
+    qs("#endShift")?.addEventListener("click", () => setCourierShift(false));
+    qs("#toggleAvailability")?.addEventListener("click", () => setCourierAvailability(!available));
+    bindOfferActions();
     bindCourierOrderActions();
+    bindOrderOpenButtons();
   }
-
-  /* =========================================================
-     COURIER OFFER CARD
-     ========================================================= */
-
-  function renderCourierOfferCard(
-    offer
-  ) {
-    /*
-      قبل قبول الطلب لا نعرض:
-      - اسم الزبون
-      - الهاتف
-      - العنوان التفصيلي
-      - GPS
-
-      نحاول استخدام بيانات الطلب الموجودة محلياً فقط
-      للحصول على الملخص الآمن.
-    */
-
-    const order =
-      state.orders.find(
-        item =>
-          String(item.id) ===
-          String(offer.order_id)
-      );
-
-    const pickup =
-      order?.pickup_area ||
-      orderShopName(order) ||
-      "منطقة الاستلام";
-
-    const delivery =
-      order?.delivery_area ||
-      "منطقة التوصيل";
-
-    const fee =
-      order
-        ? orderDeliveryFee(order)
-        : DEFAULT_DELIVERY_FEE;
-
-    const payment =
-      order
-        ? paymentLabel(
-            orderPaymentMode(order)
-          )
-        : "—";
-
-    const payer =
-      order
-        ? payerLabel(
-            orderDeliveryPayer(order)
-          )
-        : "—";
-
-    return `
-      <article
-        class="offer-card"
-        data-offer-card="${offer.id}"
-      >
-        <div
-          style="
-            display:flex;
-            justify-content:space-between;
-            gap:10px;
-            align-items:center;
-          "
-        >
-          <div>
-            <small>
-              عرض توصيل جديد
-            </small>
-
-            <h3>
-              ${
-                order
-                  ? escapeHTML(
-                      orderCode(order)
-                    )
-                  : "طلب توصيل"
-              }
-            </h3>
-          </div>
-
-          <span
-            class="wasalli-badge badge-info"
-          >
-            مرحلة
-            ${safeNumber(
-              offer.offer_stage
-            ) || 1}
-          </span>
-        </div>
-
-        <div class="offer-route">
-          <div>
-            <small>الاستلام</small>
-            <strong>
-              ${escapeHTML(pickup)}
-            </strong>
-          </div>
-
-          <div class="offer-route-arrow">
-            ←
-          </div>
-
-          <div>
-            <small>التوصيل</small>
-            <strong>
-              ${escapeHTML(delivery)}
-            </strong>
-          </div>
-        </div>
-
-        <div class="offer-info-grid">
-          <div class="offer-info-box">
-            <small>أجرة التوصيل</small>
-            <strong>
-              ${money(fee)}
-            </strong>
-          </div>
-
-          <div class="offer-info-box">
-            <small>طريقة الدفع</small>
-            <strong>
-              ${escapeHTML(payment)}
-            </strong>
-          </div>
-
-          <div class="offer-info-box">
-            <small>أجرة التوصيل على</small>
-            <strong>
-              ${escapeHTML(payer)}
-            </strong>
-          </div>
-
-          <div class="offer-info-box">
-            <small>وقت العرض</small>
-            <strong>
-              ${shortTime(
-                offer.offered_at
-              )}
-            </strong>
-          </div>
-        </div>
-
-        <div class="offer-actions">
-          <button
-            type="button"
-            class="btn offer-accept"
-            data-accept-offer="${offer.id}"
-          >
-            ✓ قبول الطلب
-          </button>
-
-          <button
-            type="button"
-            class="btn btn-ghost"
-            data-reject-offer="${offer.id}"
-          >
-            رفض
-          </button>
-        </div>
-      </article>
-    `;
-  }
-
-  function bindCourierOfferActions() {
-    $$("[data-accept-offer]")
-      .forEach(button => {
-        button.addEventListener(
-          "click",
-          () =>
-            acceptCourierOffer(
-              button.dataset
-                .acceptOffer
-            )
-        );
-      });
-
-    $$("[data-reject-offer]")
-      .forEach(button => {
-        button.addEventListener(
-          "click",
-          () =>
-            openRejectOfferModal(
-              button.dataset
-                .rejectOffer
-            )
-        );
-      });
-  }
-
-  async function acceptCourierOffer(
-    offerId
-  ) {
-    const button =
-      document.querySelector(
-        `[data-accept-offer="${CSS.escape(
-          String(offerId)
-        )}"]`
-      );
-
-    if (button) {
-      button.disabled = true;
-      button.textContent =
-        "جاري القبول...";
-    }
-
-    try {
-      const { data, error } =
-        await sb.rpc(
-          "wasalli_accept_offer",
-          {
-            p_offer_id: offerId
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      stopOfferSound();
-
-      await Promise.all([
-        loadOrders(),
-        loadCourierOffers(),
-        loadCurrentCourier()
-      ]);
-
-      renderPage();
-
-      toast(
-        "تم قبول الطلب. ظهرت الآن تفاصيل الزبون."
-      );
-
-      return data;
-    } catch (error) {
-      console.error(error);
-
-      await loadCourierOffers();
-
-      renderPage();
-
-      const message =
-        String(
-          error?.message || ""
-        ).includes(
-          "مندوب آخر"
-        )
-          ? "سبقك مندوب آخر وقبل الطلب."
-          : error.message ||
-            "تعذر قبول الطلب.";
-
-      toast(message, "error");
-    }
-  }
-
-  function openRejectOfferModal(
-    offerId
-  ) {
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>رفض الطلب</h2>
-          <p>
-            اختر سبب الرفض.
-            هذا الطلب لن يظهر لك مرة أخرى.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="form-grid">
-        <div class="field full">
-          <label>سبب الرفض</label>
-
-          <select
-            id="rejectReason"
-          >
-            <option value="far">
-              المكان بعيد
-            </option>
-
-            <option value="busy">
-              مشغول حالياً
-            </option>
-
-            <option value="bike_issue">
-              عطل بالمركبة
-            </option>
-
-            <option value="other">
-              سبب آخر
-            </option>
-          </select>
-        </div>
-
-        <div
-          class="field full hidden"
-          id="rejectNoteWrap"
-        >
-          <label>
-            اكتب السبب
-          </label>
-
-          <textarea
-            id="rejectNote"
-            rows="3"
-            placeholder="اكتب سبب الرفض..."
-          ></textarea>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          type="button"
-          class="btn btn-ghost"
-          data-close
-        >
-          رجوع
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-danger"
-          id="confirmRejectOffer"
-        >
-          تأكيد الرفض
-        </button>
-      </div>
-    `);
-
-    $("#rejectReason")
-      ?.addEventListener(
-        "change",
-        event => {
-          $("#rejectNoteWrap")
-            ?.classList.toggle(
-              "hidden",
-              event.target.value !==
-                "other"
-            );
-        }
-      );
-
-    $("#confirmRejectOffer")
-      ?.addEventListener(
-        "click",
-        () =>
-          rejectCourierOffer(
-            offerId
-          )
-      );
-  }
-
-  async function rejectCourierOffer(
-    offerId
-  ) {
-    const reason =
-      $("#rejectReason")?.value ||
-      "";
-
-    const note =
-      $("#rejectNote")
-        ?.value?.trim() ||
-      null;
-
-    if (
-      reason === "other" &&
-      !note
-    ) {
-      toast(
-        "اكتب سبب الرفض.",
-        "warning"
-      );
-      return;
-    }
-
-    try {
-      const { error } =
-        await sb.rpc(
-          "wasalli_reject_offer",
-          {
-            p_offer_id: offerId,
-            p_reason: reason,
-            p_note: note
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      closeModal();
-
-      await loadCourierOffers();
-
-      renderPage();
-
-      toast(
-        "تم رفض العرض."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        error.message ||
-          "تعذر رفض العرض.",
-        "error"
-      );
-    }
-  }
-
-  /* =========================================================
-     COURIER CURRENT ORDER CARD
-     ========================================================= */
-
-  function renderCourierCurrentOrderCard(
-    order
-  ) {
-    const phone =
-      orderCustomerPhone(order);
-
-    const customerLat =
-      orderCustomerLat(order);
-
-    const customerLng =
-      orderCustomerLng(order);
-
-    const pickupLat =
-      orderPickupLat(order);
-
-    const pickupLng =
-      orderPickupLng(order);
-
-    const collect =
-      calculateAmountToCollect(
-        order
-      );
-
-    return `
-      <article
-        class="current-order-card"
-      >
-        <div
-          style="
-            display:flex;
-            justify-content:space-between;
-            align-items:flex-start;
-            gap:10px;
-          "
-        >
-          <div>
-            <small>الطلب</small>
-
-            <h2
-              style="
-                margin:4px 0 5px
-              "
-            >
-              ${escapeHTML(
-                orderCode(order)
-              )}
-            </h2>
-
-            ${statusBadge(
-              order.status
-            )}
-          </div>
-
-          <strong>
-            ${money(
-              orderDeliveryFee(order)
-            )}
-          </strong>
-        </div>
-
-        <div
-          class="offer-route"
-          style="margin-top:14px"
-        >
-          <div>
-            <small>المحل</small>
-            <strong>
-              ${escapeHTML(
-                orderShopName(order)
-              )}
-            </strong>
-          </div>
-
-          <div class="offer-route-arrow">
-            ←
-          </div>
-
-          <div>
-            <small>الزبون</small>
-            <strong>
-              ${escapeHTML(
-                orderCustomerName(order)
-              )}
-            </strong>
-          </div>
-        </div>
-
-        <div
-          style="
-            margin-top:13px;
-            line-height:1.8
-          "
-        >
-          <div>
-            <strong>
-              📍 العنوان:
-            </strong>
-
-            ${escapeHTML(
-              orderAddress(order) ||
-              "غير محدد"
-            )}
-          </div>
-
-          ${
-            order.nearest_landmark
-              ? `
-                <div>
-                  <strong>
-                    🏛 أقرب نقطة:
-                  </strong>
-
-                  ${escapeHTML(
-                    order.nearest_landmark
-                  )}
-                </div>
-              `
-              : ""
-          }
-
-          <div>
-            <strong>
-              💵 قيمة البضاعة:
-            </strong>
-
-            ${money(
-              order.goods_value
-            )}
-          </div>
-
-          <div>
-            <strong>
-              💰 تستلم من الزبون:
-            </strong>
-
-            ${money(collect)}
-          </div>
-
-          <div>
-            <strong>
-              💳 الدفع:
-            </strong>
-
-            ${escapeHTML(
-              paymentLabel(
-                orderPaymentMode(
-                  order
-                )
-              )
-            )}
-          </div>
-
-          ${
-            order.notes
-              ? `
-                <div>
-                  <strong>
-                    📝 ملاحظات:
-                  </strong>
-
-                  ${escapeHTML(
-                    order.notes
-                  )}
-                </div>
-              `
-              : ""
-          }
-        </div>
-
-        <div class="order-action-grid">
-          ${
-            phone
-              ? `
-                <button
-                  type="button"
-                  class="btn action-call"
-                  data-call-phone="${escapeHTML(
-                    phone
-                  )}"
-                >
-                  ☎ اتصال
-                </button>
-
-                <button
-                  type="button"
-                  class="btn action-whatsapp"
-                  data-whatsapp-phone="${escapeHTML(
-                    phone
-                  )}"
-                >
-                  واتساب
-                </button>
-              `
-              : ""
-          }
-
-          ${
-            pickupLat !== null &&
-            pickupLng !== null
-              ? `
-                <button
-                  type="button"
-                  class="btn action-map"
-                  data-google-map="${pickupLat},${pickupLng}"
-                >
-                  خرائط المحل
-                </button>
-
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  data-waze-map="${pickupLat},${pickupLng}"
-                >
-                  Waze للمحل
-                </button>
-              `
-              : ""
-          }
-
-          ${
-            customerLat !== null &&
-            customerLng !== null
-              ? `
-                <button
-                  type="button"
-                  class="btn action-map"
-                  data-google-map="${customerLat},${customerLng}"
-                >
-                  خرائط الزبون
-                </button>
-
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  data-waze-map="${customerLat},${customerLng}"
-                >
-                  Waze للزبون
-                </button>
-              `
-              : order.customer_location_link
-                ? `
-                  <button
-                    type="button"
-                    class="btn action-map wide"
-                    data-external-url="${escapeHTML(
-                      order.customer_location_link
-                    )}"
-                  >
-                    فتح موقع الزبون
-                  </button>
-                `
-                : ""
-          }
-
-          ${courierStatusActionButtons(
-            order
-          )}
-        </div>
-      </article>
-    `;
-  }
-
-  function courierStatusActionButtons(
-    order
-  ) {
-    if (!order) return "";
-
-    if (
-      CLOSED_ORDER_STATUSES.includes(
-        order.status
-      )
-    ) {
-      return "";
-    }
-
-    if (
-      order.status === "accepted" ||
-      order.status === "assigned"
-    ) {
-      return `
-        <button
-          type="button"
-          class="btn btn-primary wide"
-          data-courier-status="picked_up"
-          data-order-id="${order.id}"
-        >
-          ✓ استلمت الطلب من المحل
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-ghost wide"
-          data-courier-return="${order.id}"
-        >
-          تعذر إكمال الطلب / راجع
-        </button>
-      `;
-    }
-
-    if (
-      order.status === "picked_up"
-    ) {
-      return `
-        <button
-          type="button"
-          class="btn btn-primary wide"
-          data-courier-status="on_the_way"
-          data-order-id="${order.id}"
-        >
-          🛵 أنا بالطريق للزبون
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-ghost wide"
-          data-courier-return="${order.id}"
-        >
-          الطلب راجع
-        </button>
-      `;
-    }
-
-    if (
-      order.status === "on_the_way" ||
-      order.status === "road"
-    ) {
-      return `
-        <button
-          type="button"
-          class="btn btn-primary wide"
-          data-courier-status="delivered"
-          data-order-id="${order.id}"
-        >
-          ✓ تم تسليم الطلب
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-ghost wide"
-          data-courier-return="${order.id}"
-        >
-          لم يتم التسليم / راجع
-        </button>
-      `;
-    }
-
-    return "";
-  }
-
-  function renderCourierHistoryCard(
-    order
-  ) {
-    const returnedNeedsShop =
-      order.status === "returned" &&
-      !order.returned_to_shop_at;
-
-    return `
-      <article
-        class="current-order-card"
-      >
-        <div
-          style="
-            display:flex;
-            justify-content:space-between;
-            gap:10px;
-          "
-        >
-          <div>
-            <strong>
-              ${escapeHTML(
-                orderCode(order)
-              )}
-            </strong>
-
-            <div
-              style="margin-top:6px"
-            >
-              ${statusBadge(
-                order.status
-              )}
-            </div>
-          </div>
-
-          <strong>
-            ${money(
-              orderDeliveryFee(order) *
-              (
-                COURIER_PERCENT /
-                100
-              )
-            )}
-          </strong>
-        </div>
-
-        <div
-          style="
-            margin-top:10px;
-            opacity:.8
-          "
-        >
-          ${escapeHTML(
-            orderShopName(order)
-          )}
-          —
-          ${dateTime(
-            order.updated_at ||
-            order.created_at
-          )}
-        </div>
-
-        ${
-          returnedNeedsShop
-            ? `
-              <button
-                type="button"
-                class="btn btn-primary"
-                style="
-                  width:100%;
-                  margin-top:12px
-                "
-                data-returned-shop="${order.id}"
-              >
-                ✓ تم إرجاع الطلب للمحل
-              </button>
-            `
-            : ""
-        }
-      </article>
-    `;
-  }
-
-  function bindCourierOrderActions() {
-    $$("[data-call-phone]")
-      .forEach(button => {
-        button.onclick = () =>
-          openExternal(
-            callUrl(
-              button.dataset.callPhone
-            )
-          );
-      });
-
-    $$("[data-whatsapp-phone]")
-      .forEach(button => {
-        button.onclick = () =>
-          openExternal(
-            whatsappUrl(
-              button.dataset
-                .whatsappPhone
-            )
-          );
-      });
-
-    $$("[data-google-map]")
-      .forEach(button => {
-        button.onclick = () => {
-          const [lat, lng] =
-            String(
-              button.dataset
-                .googleMap
-            )
-              .split(",")
-              .map(Number);
-
-          openExternal(
-            googleMapsUrl(
-              lat,
-              lng
-            )
-          );
-        };
-      });
-
-    $$("[data-waze-map]")
-      .forEach(button => {
-        button.onclick = () => {
-          const [lat, lng] =
-            String(
-              button.dataset
-                .wazeMap
-            )
-              .split(",")
-              .map(Number);
-
-          openExternal(
-            wazeUrl(lat, lng)
-          );
-        };
-      });
-
-    $$("[data-external-url]")
-      .forEach(button => {
-        button.onclick = () =>
-          openExternal(
-            button.dataset
-              .externalUrl
-          );
-      });
-
-    $$("[data-courier-status]")
-      .forEach(button => {
-        button.onclick = () =>
-          courierUpdateStatus(
-            button.dataset.orderId,
-            button.dataset
-              .courierStatus
-          );
-      });
-
-    $$("[data-courier-return]")
-      .forEach(button => {
-        button.onclick = () =>
-          openCourierReturnModal(
-            button.dataset
-              .courierReturn
-          );
-      });
-
-    $$("[data-returned-shop]")
-      .forEach(button => {
-        button.onclick = () =>
-          confirmReturnedToShop(
-            button.dataset
-              .returnedShop
-          );
-      });
-  }
-
-  async function courierUpdateStatus(
-    orderId,
-    status
-  ) {
-    try {
-      const { error } =
-        await sb.rpc(
-          "wasalli_courier_order_status",
-          {
-            p_order_id: orderId,
-            p_status: status
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadOrders();
-
-      renderPage();
-
-      toast(
-        status === "picked_up"
-          ? "تم تسجيل استلام الطلب."
-          : status ===
-              "on_the_way"
-            ? "تم تسجيل أنك بالطريق."
-            : status ===
-                "delivered"
-              ? "تم تسجيل تسليم الطلب."
-              : "تم تحديث الطلب."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر تحديث الطلب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  function openCourierReturnModal(
-    orderId
-  ) {
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>إرجاع الطلب</h2>
-          <p>
-            سيتم تسجيل الطلب كراجع.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="field">
-        <label>
-          سبب الإرجاع
-        </label>
-
-        <textarea
-          id="courierReturnReason"
-          rows="4"
-          placeholder="مثال: الزبون لم يرد، العنوان غير صحيح..."
-        ></textarea>
-      </div>
-
-      <div class="form-actions">
-        <button
-          class="btn btn-ghost"
-          data-close
-        >
-          رجوع
-        </button>
-
-        <button
-          class="btn btn-danger"
-          id="confirmCourierReturn"
-        >
-          تأكيد الراجع
-        </button>
-      </div>
-    `);
-
-    $("#confirmCourierReturn")
-      ?.addEventListener(
-        "click",
-        async () => {
-          const reason =
-            $("#courierReturnReason")
-              ?.value?.trim() ||
-            "";
-
-          if (!reason) {
-            toast(
-              "اكتب سبب الإرجاع.",
-              "warning"
-            );
-            return;
-          }
-
-          try {
-            const { error } =
-              await sb.rpc(
-                "wasalli_courier_order_status",
-                {
-                  p_order_id:
-                    orderId,
-                  p_status:
-                    "returned"
-                }
-              );
-
-            if (error) {
-              throw error;
-            }
-
-            /*
-              نخزن السبب إذا سمحت
-              سياسة الطلب الحالية.
-              فشل هذه الخطوة لا يلغي
-              نجاح تحويل الحالة.
-            */
-            try {
-              await sb
-                .from("orders")
-                .update({
-                  returned_reason:
-                    reason,
-                  status_note:
-                    reason,
-                  returned_at:
-                    new Date()
-                      .toISOString()
-                })
-                .eq(
-                  "id",
-                  orderId
-                );
-            } catch {
-              // لا نوقف العملية
-            }
-
-            closeModal();
-
-            await loadOrders();
-
-            renderPage();
-
-            toast(
-              "تم تسجيل الطلب كراجع."
-            );
-          } catch (error) {
-            console.error(error);
-
-            toast(
-              error.message ||
-                "تعذر إرجاع الطلب.",
-              "error"
-            );
-          }
-        }
-      );
-  }
-
-  async function confirmReturnedToShop(
-    orderId
-  ) {
-    const confirmed =
-      await confirmAction(
-        "هل تم تسليم الطلب الراجع فعلياً إلى المحل؟",
-        "نعم، تم الإرجاع"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      const { error } =
-        await sb.rpc(
-          "wasalli_returned_to_shop",
-          {
-            p_order_id: orderId
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadOrders();
-
-      renderPage();
-
-      toast(
-        "تم تأكيد إرجاع الطلب للمحل."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        error.message ||
-          "تعذر تسجيل الإرجاع للمحل.",
-        "error"
-      );
-    }
-  }
-
-  /* =========================================================
-     FINANCE DASHBOARD
-     ========================================================= */
 
   function renderFinanceDashboard() {
-    if (!isFinanceUser()) {
-      state.page = "dashboard";
-      renderDashboard();
-      return;
-    }
-
-    setTitle(
-      "الملخص المالي",
-      "حسابات وصلّي والتسويات"
-    );
-
-    const companyIncome =
-      state.financialLedger
-        .filter(
-          entry =>
-            entry.entry_type ===
-              "company_delivery_share" &&
-            !entry.is_reversal
-        )
-        .reduce(
-          (sum, entry) =>
-            sum +
-            safeNumber(entry.amount),
-          0
-        );
-
-    const courierShares =
-      state.financialLedger
-        .filter(
-          entry =>
-            entry.entry_type ===
-              "courier_delivery_share" &&
-            !entry.is_reversal
-        )
-        .reduce(
-          (sum, entry) =>
-            sum +
-            safeNumber(entry.amount),
-          0
-        );
-
-    const remittances =
-      state.courierPayments.reduce(
-        (sum, payment) =>
-          sum +
-          safeNumber(
-            payment.amount
-          ),
-        0
-      );
-
-    const expenses =
-      state.expenses
-        .filter(
-          expense =>
-            !expense.reversed_at
-        )
-        .reduce(
-          (sum, expense) =>
-            sum +
-            safeNumber(
-              expense.amount
-            ),
-          0
-        );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="financial-summary-grid">
-        ${financeSummaryBox(
-          "حصة وصلّي",
-          companyIncome,
-          "30% من أجور التوصيل"
-        )}
-
-        ${financeSummaryBox(
-          "حصص المندوبين",
-          courierShares,
-          "70% من أجور التوصيل"
-        )}
-
-        ${financeSummaryBox(
-          "المبالغ المستلمة",
-          remittances,
-          "تسويات المندوبين"
-        )}
-
-        ${financeSummaryBox(
-          "المصاريف",
-          expenses,
-          "المصاريف غير المعكوسة"
-        )}
-
-        ${financeSummaryBox(
-          "صافي حصة الشركة",
-          companyIncome -
-            expenses,
-          "قبل أي تسويات إضافية"
-        )}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <div>
-            <h2>
-              آخر الحركات المالية
-            </h2>
-
-            <p>
-              سجل مالي محفوظ
-            </p>
-          </div>
-
-          <button
-            class="btn btn-primary"
-            id="financeAccountsBtn"
-          >
-            فتح الحسابات
-          </button>
-        </div>
-
-        ${financeLedgerTable(
-          state.financialLedger
-            .slice(0, 15)
-        )}
-      </div>
-    `;
-
-    $("#financeAccountsBtn")
-      ?.addEventListener(
-        "click",
-        () => {
-          state.page = "accounts";
-          renderPage();
-        }
-      );
-  }
-
-  function financeSummaryBox(
-    title,
-    value,
-    subtitle
-  ) {
-    return `
-      <div class="financial-summary-box">
-        <span>
-          ${escapeHTML(title)}
-        </span>
-
-        <strong
-          style="
-            display:block;
-            font-size:22px;
-            margin:7px 0
-          "
-        >
-          ${money(value)}
-        </strong>
-
-        <small>
-          ${escapeHTML(subtitle)}
-        </small>
-      </div>
-    `;
+    setPageTitle("الملخص المالي", "الحركة المالية في وصلّي");
+    const income = state.ledger.filter(x => safeNumber(x.amount) > 0).reduce((s,x)=>s+safeNumber(x.amount),0);
+    const expenses = state.expenses.filter(x => !x.reversed_at).reduce((s,x)=>s+safeNumber(x.amount),0);
+    const payments = state.payments.reduce((s,x)=>s+safeNumber(x.amount),0);
+    qs("#content").innerHTML = `<div class="financial-grid">${stat("💰","إجمالي السجل",money(income))}${stat("🧾","المصاريف",money(expenses))}${stat("🛵","تسديدات المندوبين",money(payments))}</div><div class="card" style="margin-top:15px"><div class="card-header"><h2>آخر الحركات المالية</h2></div>${ledgerTable(state.ledger.slice(0,30))}</div>`;
   }
 
   /* =========================================================
-     ORDERS PAGE
+     ORDERS
      ========================================================= */
 
+  function ordersTable(orders) {
+    if (!orders.length) return `<div class="empty desktop-table">لا توجد طلبات.</div>`;
+    return `<div class="table-wrap desktop-table"><table class="data-table"><thead><tr><th>الطلب</th><th>المحل</th><th>الزبون</th><th>المنطقة</th><th>المندوب</th><th>الحالة</th><th>الأجرة</th><th>التاريخ</th><th></th></tr></thead><tbody>${orders.map(o => `<tr class="${isLate(o)?"late":""}"><td><strong>${escapeHTML(orderCode(o))}</strong></td><td>${escapeHTML(shopName(o))}</td><td>${escapeHTML(customerName(o))}</td><td>${escapeHTML(o.delivery_area || "—")}</td><td>${escapeHTML(courierName(o))}</td><td>${statusBadge(o.status)}</td><td>${money(orderFee(o))}</td><td>${dateTime(o.created_at)}</td><td><button class="ghost-btn btn-sm" data-open-order="${escapeHTML(o.id)}">فتح</button></td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function ordersMobile(orders, courierMode = false) {
+    if (!orders.length) return `<div class="mobile-list"><div class="empty">لا توجد طلبات.</div></div>`;
+    return `<div class="mobile-list">${orders.map(o => `<article class="mobile-order-card ${isLate(o)?"late":""}"><div class="row"><strong>${escapeHTML(orderCode(o))}</strong>${statusBadge(o.status)}</div><div class="row"><span class="muted">${courierMode ? "المحل" : "الزبون"}</span><span>${escapeHTML(courierMode ? shopName(o) : customerName(o))}</span></div><div class="row"><span class="muted">المنطقة</span><span>${escapeHTML(o.delivery_area || "—")}</span></div><div class="row"><span class="muted">الأجرة</span><strong>${money(orderFee(o))}</strong></div><button class="ghost-btn btn-sm" data-open-order="${escapeHTML(o.id)}" style="width:100%;margin-top:8px">فتح الطلب</button></article>`).join("")}</div>`;
+  }
+
   function renderOrders() {
-    if (isCourier()) {
-      renderCourierOrdersPage();
-      return;
-    }
-
-    setTitle(
-      isShop()
-        ? "طلباتي"
-        : "الطلبات",
-      isShop()
-        ? "طلبات المحل"
-        : "إدارة عمليات التوصيل"
-    );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    const canCreate =
-      isAdminOrOperations() ||
-      isShop();
-
-    content.innerHTML = `
+    setPageTitle(isCourier() ? "طلباتي" : isShop() ? "طلبات المحل" : "الطلبات", "إدارة ومتابعة الطلبات");
+    const canCreate = isAdminOrOperations() || isShop();
+    qs("#content").innerHTML = `
       <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>
-              ${
-                isShop()
-                  ? "طلبات المحل"
-                  : "كل الطلبات"
-              }
-            </h2>
-
-            <p>
-              ${state.orders.length}
-              طلب
-            </p>
-          </div>
-
-          ${
-            canCreate
-              ? `
-                <button
-                  class="btn btn-primary"
-                  id="newOrderBtn"
-                >
-                  + طلب جديد
-                </button>
-              `
-              : ""
-          }
-        </div>
-
-        <div
-          class="order-filter-bar"
-        >
-          <input
-            id="orderSearch"
-            type="search"
-            placeholder="بحث بالرقم، الزبون، الهاتف، المحل..."
-          />
-
-          <select
-            id="orderStatusFilter"
-          >
-            <option value="">
-              كل الحالات
-            </option>
-
-            <option value="new">
-              طلب جديد
-            </option>
-
-            <option value="accepted">
-              مقبول
-            </option>
-
-            <option value="picked_up">
-              تم الاستلام
-            </option>
-
-            <option value="on_the_way">
-              بالطريق
-            </option>
-
-            <option value="delivered">
-              تم التسليم
-            </option>
-
-            <option value="returned">
-              راجع
-            </option>
-
-            <option value="cancelled">
-              ملغي
-            </option>
-          </select>
-        </div>
-
-        <div id="ordersResults">
-          ${
-            isShop()
-              ? shopOrdersList(
-                  state.orders
-                )
-              : managementOrdersTable(
-                  state.orders
-                )
-          }
-        </div>
-      </div>
-    `;
-
-    $("#newOrderBtn")
-      ?.addEventListener(
-        "click",
-        openNewOrderModal
-      );
-
-    $("#orderSearch")
-      ?.addEventListener(
-        "input",
-        filterOrdersPage
-      );
-
-    $("#orderStatusFilter")
-      ?.addEventListener(
-        "change",
-        filterOrdersPage
-      );
-
+        <div class="card-header"><div><h2>الطلبات</h2><p>${state.orders.length} طلب</p></div>${canCreate ? `<button id="newOrderBtn" class="primary-btn">+ طلب جديد</button>` : ""}</div>
+        <div class="filters"><input id="orderSearch" class="filter-input" placeholder="بحث بالرقم أو الزبون أو الهاتف أو المنطقة..."><select id="orderStatusFilter" class="filter-input"><option value="">كل الحالات</option>${Object.entries(STATUS_LABELS).map(([v,l])=>`<option value="${v}">${escapeHTML(l)}</option>`).join("")}</select><select id="orderCourierFilter" class="filter-input"><option value="">كل المندوبين</option>${state.couriers.map(c=>`<option value="${escapeHTML(c.id)}">${escapeHTML(c.name || "مندوب")}</option>`).join("")}</select></div>
+        <div id="ordersResults">${ordersTable(state.orders)}${ordersMobile(state.orders, isCourier())}</div>
+      </div>`;
+    qs("#newOrderBtn")?.addEventListener("click", openNewOrderModal);
+    const refresh = () => filterOrders();
+    qs("#orderSearch")?.addEventListener("input", refresh);
+    qs("#orderStatusFilter")?.addEventListener("change", refresh);
+    qs("#orderCourierFilter")?.addEventListener("change", refresh);
     bindOrderOpenButtons();
   }
 
-  function renderCourierOrdersPage() {
-    setTitle(
-      "طلباتي",
-      "الطلبات والعروض"
-    );
-
-    renderCourierDashboard();
-  }
-
-  function filterOrdersPage() {
-    const search =
-      $("#orderSearch")
-        ?.value?.trim()
-        .toLowerCase() ||
-      "";
-
-    const status =
-      $("#orderStatusFilter")
-        ?.value ||
-      "";
-
-    const filtered =
-      state.orders.filter(
-        order => {
-          if (
-            status &&
-            order.status !== status
-          ) {
-            return false;
-          }
-
-          if (!search) {
-            return true;
-          }
-
-          const haystack = [
-            orderCode(order),
-            orderCustomerName(order),
-            orderCustomerPhone(order),
-            orderShopName(order),
-            orderCourierName(order),
-            orderAddress(order),
-            order.pickup_area,
-            order.delivery_area
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          return haystack.includes(
-            search
-          );
-        }
-      );
-
-    const target =
-      $("#ordersResults");
-
-    if (!target) return;
-
-    target.innerHTML =
-      isShop()
-        ? shopOrdersList(filtered)
-        : managementOrdersTable(
-            filtered
-          );
-
+  function filterOrders() {
+    const term = (qs("#orderSearch")?.value || "").trim().toLowerCase();
+    const status = qs("#orderStatusFilter")?.value || "";
+    const courier = qs("#orderCourierFilter")?.value || "";
+    const list = state.orders.filter(o => {
+      const text = [orderCode(o), customerName(o), customerPhone(o), o.delivery_area, orderAddress(o), shopName(o), courierName(o)].join(" ").toLowerCase();
+      return (!term || text.includes(term)) && (!status || o.status === status) && (!courier || String(o.courier_id) === String(courier));
+    });
+    const target = qs("#ordersResults");
+    if (target) target.innerHTML = ordersTable(list) + ordersMobile(list, isCourier());
     bindOrderOpenButtons();
-  }
-
-  function managementOrdersTable(
-    orders
-  ) {
-    if (!orders.length) {
-      return `
-        <div class="empty-state">
-          لا توجد طلبات.
-        </div>
-      `;
-    }
-
-    return `
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>الطلب</th>
-              <th>المحل</th>
-              <th>المنطقة</th>
-              <th>المندوب</th>
-              <th>الأجرة</th>
-              <th>الحالة</th>
-              <th>الوقت</th>
-              <th></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            ${orders
-              .map(
-                order => `
-                  <tr
-                    class="${
-                      isLateOrder(order)
-                        ? "late-order-row"
-                        : ""
-                    }"
-                  >
-                    <td>
-                      <strong>
-                        ${escapeHTML(
-                          orderCode(order)
-                        )}
-                      </strong>
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        orderShopName(
-                          order
-                        )
-                      )}
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        order.delivery_area ||
-                        orderAddress(
-                          order
-                        ) ||
-                        "—"
-                      )}
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        orderCourierName(
-                          order
-                        )
-                      )}
-                    </td>
-
-                    <td>
-                      ${money(
-                        orderDeliveryFee(
-                          order
-                        )
-                      )}
-                    </td>
-
-                    <td>
-                      ${statusBadge(
-                        order.status
-                      )}
-                    </td>
-
-                    <td>
-                      ${dateTime(
-                        order.created_at
-                      )}
-                    </td>
-
-                    <td>
-                      <button
-                        class="btn btn-ghost btn-sm"
-                        data-open-order="${order.id}"
-                      >
-                        فتح
-                      </button>
-                    </td>
-                  </tr>
-                `
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function shopOrdersList(
-    orders
-  ) {
-    if (!orders.length) {
-      return `
-        <div class="empty-state">
-          لا توجد طلبات.
-        </div>
-      `;
-    }
-
-    return `
-      <div class="simple-list">
-        ${orders
-          .map(
-            order => `
-              <button
-                type="button"
-                class="simple-list-item ${
-                  isLateOrder(order)
-                    ? "late-order-row"
-                    : ""
-                }"
-                data-open-order="${order.id}"
-              >
-                <div>
-                  <strong>
-                    ${escapeHTML(
-                      orderCode(order)
-                    )}
-                  </strong>
-
-                  <span>
-                    ${escapeHTML(
-                      orderCustomerName(
-                        order
-                      )
-                    )}
-                  </span>
-                </div>
-
-                <div>
-                  ${statusBadge(
-                    order.status
-                  )}
-                </div>
-
-                <div>
-                  ${money(
-                    orderDeliveryFee(
-                      order
-                    )
-                  )}
-                </div>
-              </button>
-            `
-          )
-          .join("")}
-      </div>
-    `;
   }
 
   function bindOrderOpenButtons() {
-    $$("[data-open-order]")
-      .forEach(button => {
-        button.onclick = () => {
-          const order =
-            state.orders.find(
-              item =>
-                String(item.id) ===
-                String(
-                  button.dataset
-                    .openOrder
-                )
-            );
-
-          if (order) {
-            openOrder(order);
-          }
-        };
-      });
+    qsa("[data-open-order]").forEach(btn => btn.addEventListener("click", () => openOrder(btn.dataset.openOrder)));
   }
 
-  /* =========================================================
-     NEW ORDER
-     ========================================================= */
+  function shopOptions(selected = "") {
+    return state.shops.filter(s => s.is_active !== false && !s.archived_at).map(s => `<option value="${escapeHTML(s.id)}" ${String(selected)===String(s.id)?"selected":""}>${escapeHTML(s.name || "محل")}</option>`).join("");
+  }
+
+  function courierOptions(selected = "") {
+    return state.couriers.filter(c => c.is_active !== false && !c.archived_at).map(c => `<option value="${escapeHTML(c.id)}" ${String(selected)===String(c.id)?"selected":""}>${escapeHTML(c.name || "مندوب")}</option>`).join("");
+  }
 
   function openNewOrderModal() {
-    if (
-      !isAdminOrOperations() &&
-      !isShop()
-    ) {
-      toast(
-        "ليس لديك صلاحية لإضافة طلب.",
-        "error"
-      );
-      return;
-    }
-
-    const ownShopId =
-      isShop()
-        ? state.profile?.shop_id
-        : null;
-
-    const shopOptions =
-      state.shops
-        .filter(
-          shop =>
-            shop.is_active !== false &&
-            !shop.archived_at
-        )
-        .map(
-          shop => `
-            <option
-              value="${shop.id}"
-              ${
-                String(shop.id) ===
-                String(ownShopId)
-                  ? "selected"
-                  : ""
-              }
-            >
-              ${escapeHTML(
-                shop.name
-              )}
-            </option>
-          `
-        )
-        .join("");
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>طلب جديد</h2>
-
-          <p>
-            أدخل معلومات الطلب.
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
+    if (!(isAdminOrOperations() || isShop())) return;
+    const ownShop = isShop() ? state.profile?.shop_id : "";
+    openModal(`${modalHeader("إنشاء طلب جديد", "كربلاء فقط — أدخل بيانات التوصيل")}
       <div class="form-grid">
-        <div class="field">
-          <label>المحل</label>
-
-          <select
-            id="newOrderShop"
-            ${isShop()
-              ? "disabled"
-              : ""}
-          >
-            <option value="">
-              اختر المحل
-            </option>
-
-            ${shopOptions}
-          </select>
-        </div>
-
-        <div class="field">
-          <label>
-            تصنيف التسعير
-          </label>
-
-          <select
-            id="newOrderPricing"
-          >
-            <option value="B">
-              B — ${money(
-                CONFIG.PRICING?.B ||
-                3000
-              )}
-            </option>
-
-            <option value="A">
-              A — ${money(
-                CONFIG.PRICING?.A ||
-                2000
-              )}
-            </option>
-
-            <option value="C">
-              C — سعر يدوي
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>اسم الزبون</label>
-
-          <input
-            id="newOrderCustomer"
-            type="text"
-            placeholder="اسم الزبون"
-          />
-        </div>
-
-        <div class="field">
-          <label>رقم الهاتف</label>
-
-          <input
-            id="newOrderPhone"
-            type="tel"
-            placeholder="07xxxxxxxxx"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            منطقة الاستلام
-          </label>
-
-          <input
-            id="newOrderPickupArea"
-            type="text"
-            placeholder="مثال: باب الخان"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            منطقة التوصيل
-          </label>
-
-          <input
-            id="newOrderDeliveryArea"
-            type="text"
-            placeholder="مثال: حي الحسين"
-          />
-        </div>
-
-        <div class="field full">
-          <label>
-            العنوان التفصيلي
-          </label>
-
-          <input
-            id="newOrderAddress"
-            type="text"
-            placeholder="الحي، الشارع، أقرب نقطة..."
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            أقرب نقطة دالة
-          </label>
-
-          <input
-            id="newOrderLandmark"
-            type="text"
-            placeholder="مثال: قرب مدرسة..."
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            رابط موقع الزبون
-          </label>
-
-          <input
-            id="newOrderLocationLink"
-            type="url"
-            placeholder="رابط Google Maps"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            قيمة البضاعة
-          </label>
-
-          <input
-            id="newOrderGoods"
-            type="number"
-            min="0"
-            step="250"
-            value="0"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            أجرة التوصيل
-          </label>
-
-          <input
-            id="newOrderFee"
-            type="number"
-            min="0"
-            step="250"
-            value="${DEFAULT_DELIVERY_FEE}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            طريقة الدفع
-          </label>
-
-          <select
-            id="newOrderPayment"
-          >
-            <option value="cash">
-              نقداً عند الاستلام
-            </option>
-
-            <option value="prepaid">
-              مدفوع مسبقاً
-            </option>
-
-            <option value="electronic">
-              دفع إلكتروني
-            </option>
-
-            <option value="shop_account">
-              على حساب المحل
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>
-            أجرة التوصيل على
-          </label>
-
-          <select
-            id="newOrderPayer"
-          >
-            <option value="customer">
-              الزبون
-            </option>
-
-            <option value="shop">
-              المحل
-            </option>
-
-            <option value="split">
-              مشترك
-            </option>
-          </select>
-        </div>
-
-        ${
-          isAdminOrOperations()
-            ? `
-              <div class="field">
-                <label>
-                  إسناد مباشر
-                </label>
-
-                <select
-                  id="newOrderCourier"
-                >
-                  <option value="">
-                    توزيع تلقائي
-                  </option>
-
-                  ${state.couriers
-                    .filter(
-                      courier =>
-                        courier.is_active !==
-                          false &&
-                        !courier.archived_at
-                    )
-                    .map(
-                      courier => `
-                        <option
-                          value="${courier.id}"
-                        >
-                          ${escapeHTML(
-                            courier.name
-                          )}
-                        </option>
-                      `
-                    )
-                    .join("")}
-                </select>
-              </div>
-            `
-            : ""
-        }
-
-        <div class="field full">
-          <label>ملاحظات</label>
-
-          <textarea
-            id="newOrderNotes"
-            rows="3"
-            placeholder="أي ملاحظات مهمة..."
-          ></textarea>
-        </div>
+        ${isShop() ? "" : `<div class="field"><label>المحل</label><select id="newShop"><option value="">اختر المحل</option>${shopOptions()}</select></div>`}
+        <div class="field"><label>اسم الزبون</label><input id="newCustomer"></div>
+        <div class="field"><label>رقم الهاتف</label><input id="newPhone" inputmode="tel"></div>
+        <div class="field"><label>منطقة الاستلام</label><input id="newPickupArea"></div>
+        <div class="field"><label>منطقة التوصيل</label><input id="newDeliveryArea"></div>
+        <div class="field full"><label>العنوان التفصيلي</label><textarea id="newAddress" rows="2"></textarea></div>
+        <div class="field"><label>أقرب نقطة دالة</label><input id="newLandmark"></div>
+        <div class="field"><label>رابط موقع الزبون</label><input id="newLocationLink" placeholder="Google Maps"></div>
+        <div class="field"><label>قيمة البضاعة</label><input id="newGoods" type="number" min="0" value="0"></div>
+        <div class="field"><label>فئة التسعير</label><select id="newPricing"><option value="A">A — ${money(pricingA())}</option><option value="B" selected>B — ${money(pricingB())}</option><option value="C">C — يدوي</option></select></div>
+        <div class="field"><label>أجرة التوصيل</label><input id="newFee" type="number" min="0" value="${defaultFee()}"></div>
+        <div class="field"><label>طريقة الدفع</label><select id="newPayment"><option value="cash">نقداً عند الاستلام</option><option value="prepaid">مدفوع مسبقاً</option><option value="electronic">إلكتروني</option><option value="shop_account">على حساب المحل</option></select></div>
+        <div class="field"><label>أجرة التوصيل على</label><select id="newPayer"><option value="customer">الزبون</option><option value="shop">المحل</option></select></div>
+        ${isAdminOrOperations() ? `<div class="field"><label>إسناد مباشر لمندوب</label><select id="newCourier"><option value="">بدون إسناد</option>${courierOptions()}</select></div>` : ""}
+        <div class="field full"><label>ملاحظات</label><textarea id="newNotes" rows="2"></textarea></div>
       </div>
+      <div class="card" style="margin-top:12px;background:#faf8fc"><span class="muted">المبلغ المطلوب تحصيله من الزبون</span><div id="collectPreview" class="kpi">${money(defaultFee())}</div></div>
+      <div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="saveNewOrder" class="primary-btn">إنشاء الطلب</button></div>`);
 
-      <div
-        class="card"
-        style="
-          margin-top:14px;
-          background:#f8f6fb
-        "
-      >
-        <strong>
-          المبلغ المتوقع استلامه من الزبون:
-        </strong>
-
-        <div
-          id="newOrderCollectPreview"
-          style="
-            font-size:22px;
-            font-weight:900;
-            margin-top:6px;
-            color:var(--wasalli-purple)
-          "
-        >
-          ${money(
-            DEFAULT_DELIVERY_FEE
-          )}
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          class="btn btn-ghost"
-          data-close
-        >
-          إلغاء
-        </button>
-
-        <button
-          class="btn btn-primary"
-          id="saveNewOrder"
-        >
-          إنشاء الطلب
-        </button>
-      </div>
-    `);
-
-    const selectedShop =
-      state.shops.find(
-        shop =>
-          String(shop.id) ===
-          String(
-            $("#newOrderShop")
-              ?.value
-          )
-      );
-
-    if (
-      selectedShop &&
-      $("#newOrderPickupArea")
-    ) {
-      $("#newOrderPickupArea")
-        .value =
-        selectedShop.area || "";
-    }
-
-    [
-      "#newOrderGoods",
-      "#newOrderFee",
-      "#newOrderPayment",
-      "#newOrderPayer"
-    ].forEach(selector => {
-      $(selector)
-        ?.addEventListener(
-          "input",
-          updateNewOrderCollectPreview
-        );
-
-      $(selector)
-        ?.addEventListener(
-          "change",
-          updateNewOrderCollectPreview
-        );
+    const pricing = qs("#newPricing");
+    pricing?.addEventListener("change", () => {
+      if (pricing.value === "A") qs("#newFee").value = pricingA();
+      if (pricing.value === "B") qs("#newFee").value = pricingB();
+      if (pricing.value === "C") qs("#newFee").focus();
+      updateCollectPreview();
     });
-
-    $("#newOrderPricing")
-      ?.addEventListener(
-        "change",
-        event => {
-          const value =
-            event.target.value;
-
-          if (value === "A") {
-            $("#newOrderFee").value =
-              CONFIG.PRICING?.A ||
-              2000;
-          }
-
-          if (value === "B") {
-            $("#newOrderFee").value =
-              CONFIG.PRICING?.B ||
-              3000;
-          }
-
-          if (value === "C") {
-            $("#newOrderFee").focus();
-          }
-
-          updateNewOrderCollectPreview();
-        }
-      );
-
-    $("#newOrderShop")
-      ?.addEventListener(
-        "change",
-        event => {
-          const shop =
-            state.shops.find(
-              item =>
-                String(item.id) ===
-                String(
-                  event.target.value
-                )
-            );
-
-          if (
-            shop &&
-            $("#newOrderPickupArea")
-          ) {
-            $("#newOrderPickupArea")
-              .value =
-              shop.area || "";
-          }
-        }
-      );
-
-    $("#saveNewOrder")
-      ?.addEventListener(
-        "click",
-        saveNewOrder
-      );
-
-    updateNewOrderCollectPreview();
+    ["#newGoods","#newFee","#newPayment","#newPayer"].forEach(s => qs(s)?.addEventListener("input", updateCollectPreview));
+    qs("#newShop")?.addEventListener("change", () => {
+      const s = state.shops.find(x => String(x.id) === String(qs("#newShop")?.value));
+      if (s && qs("#newPickupArea")) qs("#newPickupArea").value = s.area || "";
+    });
+    qs("#saveNewOrder")?.addEventListener("click", () => saveNewOrder(ownShop));
+    updateCollectPreview();
   }
 
-  function updateNewOrderCollectPreview() {
-    const goods =
-      safeNumber(
-        $("#newOrderGoods")?.value
-      );
-
-    const fee =
-      safeNumber(
-        $("#newOrderFee")?.value
-      );
-
-    const payment =
-      $("#newOrderPayment")?.value ||
-      "cash";
-
-    const payer =
-      $("#newOrderPayer")?.value ||
-      "customer";
-
+  function updateCollectPreview() {
+    const goods = safeNumber(qs("#newGoods")?.value);
+    const fee = safeNumber(qs("#newFee")?.value);
+    const payment = qs("#newPayment")?.value || "cash";
+    const payer = qs("#newPayer")?.value || "customer";
     let amount = 0;
-
-    if (
-      payment !== "prepaid" &&
-      payment !== "electronic"
-    ) {
-      if (payer === "shop") {
-        amount = goods;
-      } else {
-        amount = goods + fee;
-      }
-    }
-
-    if (
-      $("#newOrderCollectPreview")
-    ) {
-      $("#newOrderCollectPreview")
-        .textContent =
-        money(amount);
-    }
+    if (!["prepaid","electronic"].includes(payment)) amount = goods + (payer === "shop" ? 0 : fee);
+    if (qs("#collectPreview")) qs("#collectPreview").textContent = money(amount);
   }
 
-  async function saveNewOrder() {
-    const shopId =
-      isShop()
-        ? state.profile?.shop_id
-        : $("#newOrderShop")
-            ?.value ||
-          null;
+  async function saveNewOrder(ownShopId = "") {
+    const btn = qs("#saveNewOrder");
+    const shopId = ownShopId || qs("#newShop")?.value || null;
+    const shop = state.shops.find(x => String(x.id) === String(shopId));
+    const customer = qs("#newCustomer")?.value?.trim() || "";
+    const phone = localPhone(qs("#newPhone")?.value || "");
+    const deliveryArea = qs("#newDeliveryArea")?.value?.trim() || "";
+    const address = qs("#newAddress")?.value?.trim() || "";
+    if (!shopId) return toast("اختر المحل.", "warning");
+    if (!customer || !phone || !deliveryArea || !address) return toast("أكمل اسم الزبون والهاتف والمنطقة والعنوان.", "warning");
 
-    const shop =
-      state.shops.find(
-        item =>
-          String(item.id) ===
-          String(shopId)
-      );
-
-    const customer =
-      $("#newOrderCustomer")
-        ?.value?.trim() ||
-      "";
-
-    const phone =
-      localPhone(
-        $("#newOrderPhone")
-          ?.value ||
-        ""
-      );
-
-    const address =
-      $("#newOrderAddress")
-        ?.value?.trim() ||
-      "";
-
-    const pickupArea =
-      $("#newOrderPickupArea")
-        ?.value?.trim() ||
-      shop?.area ||
-      "";
-
-    const deliveryArea =
-      $("#newOrderDeliveryArea")
-        ?.value?.trim() ||
-      "";
-
-    const goods =
-      safeNumber(
-        $("#newOrderGoods")?.value
-      );
-
-    const fee =
-      safeNumber(
-        $("#newOrderFee")?.value
-      );
-
-    const payment =
-      $("#newOrderPayment")?.value ||
-      "cash";
-
-    const payer =
-      $("#newOrderPayer")?.value ||
-      "customer";
-
-    const pricing =
-      $("#newOrderPricing")?.value ||
-      "B";
-
-    const courierId =
-      isAdminOrOperations()
-        ? $("#newOrderCourier")
-            ?.value ||
-          null
-        : null;
-
-    const courier =
-      state.couriers.find(
-        item =>
-          String(item.id) ===
-          String(courierId)
-      );
-
-    if (!shopId) {
-      toast(
-        "اختر المحل.",
-        "warning"
-      );
-      return;
-    }
-
-    if (!customer) {
-      toast(
-        "اكتب اسم الزبون.",
-        "warning"
-      );
-      return;
-    }
-
-    if (!phone) {
-      toast(
-        "اكتب رقم هاتف الزبون.",
-        "warning"
-      );
-      return;
-    }
-
-    if (!deliveryArea) {
-      toast(
-        "اكتب منطقة التوصيل.",
-        "warning"
-      );
-      return;
-    }
-
-    if (!address) {
-      toast(
-        "اكتب عنوان التوصيل.",
-        "warning"
-      );
-      return;
-    }
-
-    if (fee < 0) {
-      toast(
-        "أجرة التوصيل غير صحيحة.",
-        "warning"
-      );
-      return;
-    }
-
-    let amountToCollect = 0;
-
-    if (
-      payment !== "prepaid" &&
-      payment !== "electronic"
-    ) {
-      if (payer === "shop") {
-        amountToCollect = goods;
-      } else {
-        amountToCollect =
-          goods + fee;
-      }
-    }
+    const fee = Math.max(0, safeNumber(qs("#newFee")?.value));
+    const goods = Math.max(0, safeNumber(qs("#newGoods")?.value));
+    const payment = qs("#newPayment")?.value || "cash";
+    const payer = qs("#newPayer")?.value || "customer";
+    const courierId = isAdminOrOperations() ? (qs("#newCourier")?.value || null) : null;
+    const courier = state.couriers.find(x => String(x.id) === String(courierId));
+    let collect = 0;
+    if (!["prepaid","electronic"].includes(payment)) collect = goods + (payer === "shop" ? 0 : fee);
 
     const payload = {
       shop_id: shopId,
-      courier_id:
-        courierId || null,
-
-      customer_name:
-        customer,
-      customer:
-        customer,
-
-      customer_phone:
-        phone,
+      courier_id: courierId,
+      customer_name: customer,
+      customer,
+      customer_phone: phone,
       phone,
-
-      delivery_address:
-        address,
-      detailed_address:
-        address,
+      delivery_address: address,
+      detailed_address: address,
       address,
-
-      pickup_area:
-        pickupArea,
-
-      delivery_area:
-        deliveryArea,
-
-      nearest_landmark:
-        $("#newOrderLandmark")
-          ?.value?.trim() ||
-        null,
-
-      customer_location_link:
-        $("#newOrderLocationLink")
-          ?.value?.trim() ||
-        null,
-
+      pickup_area: qs("#newPickupArea")?.value?.trim() || shop?.area || "",
+      delivery_area: deliveryArea,
+      nearest_landmark: qs("#newLandmark")?.value?.trim() || null,
+      customer_location_link: qs("#newLocationLink")?.value?.trim() || null,
       delivery_fee: fee,
       fee,
-
       goods_value: goods,
-
-      payment_mode:
-        payment,
-
-      payment_method:
-        payment,
-
-      delivery_fee_payer:
-        payer,
-
-      delivery_payer:
-        payer,
-
-      pricing_class:
-        pricing,
-
-      amount_to_collect:
-        amountToCollect,
-
-      courier_collection_amount:
-        amountToCollect,
-
-      status:
-        courierId
-          ? "accepted"
-          : "new",
-
-      shop:
-        shop?.name || null,
-
-      courier:
-        courier?.name || null,
-
-      notes:
-        $("#newOrderNotes")
-          ?.value?.trim() ||
-        null,
-
-      source:
-        isShop()
-          ? "shop"
-          : "admin",
-
-      created_by:
-        state.session.user.id,
-
-      assigned_at:
-        courierId
-          ? new Date()
-              .toISOString()
-          : null,
-
-      assigned_by:
-        courierId
-          ? state.session.user.id
-          : null,
-
-      updated_at:
-        new Date().toISOString()
+      payment_mode: payment,
+      payment_method: payment,
+      delivery_fee_payer: payer,
+      delivery_payer: payer,
+      pricing_class: qs("#newPricing")?.value || "B",
+      amount_to_collect: collect,
+      courier_collection_amount: collect,
+      status: courierId ? "assigned" : "new",
+      shop: shop?.name || null,
+      courier: courier?.name || null,
+      notes: qs("#newNotes")?.value?.trim() || null,
+      source: isShop() ? "shop" : "admin",
+      created_by: state.session.user.id,
+      assigned_at: courierId ? new Date().toISOString() : null,
+      dispatch_started_at: !courierId ? new Date().toISOString() : null
     };
 
-    if (shop) {
-      payload.pickup_lat =
-        shop.lat ??
-        shop.latitude ??
-        null;
-
-      payload.pickup_lng =
-        shop.lng ??
-        shop.longitude ??
-        null;
-
-      payload.pickup_latitude =
-        payload.pickup_lat;
-
-      payload.pickup_longitude =
-        payload.pickup_lng;
-
-      payload.pickup_address =
-        shop.detailed_address ||
-        shop.address ||
-        null;
-    }
-
-    const saveButton =
-      $("#saveNewOrder");
-
-    if (saveButton) {
-      saveButton.disabled = true;
-      saveButton.textContent =
-        "جاري إنشاء الطلب...";
-    }
-
+    setBusy(btn, true, "جاري الحفظ...");
     try {
-      const { data, error } =
-        await sb
-          .from("orders")
-          .insert(payload)
-          .select()
-          .single();
-
-      if (error) {
-        throw error;
-      }
-
+      const { error } = await resilientInsert("orders", payload, false);
+      if (error) throw error;
       closeModal();
-
-      await loadOrders();
-
-      if (isCourier()) {
-        await loadCourierOffers();
-      }
-
+      await loadAll(false);
+      state.page = "orders";
       renderPage();
-
-      toast(
-        courierId
-          ? "تم إنشاء الطلب وإسناده للمندوب."
-          : "تم إنشاء الطلب وبدأ التوزيع التلقائي."
-      );
-
-      return data;
+      toast("تم إنشاء الطلب.");
     } catch (error) {
       console.error(error);
+      toast("تعذر إنشاء الطلب: " + (error?.message || "خطأ"), "error");
+    } finally { setBusy(btn, false); }
+  }
 
-      toast(
-        "تعذر إنشاء الطلب: " +
-          error.message,
-        "error"
-      );
+  function openOrder(id) {
+    const o = state.orders.find(x => String(x.id) === String(id));
+    if (!o) return;
+    const phone = customerPhone(o);
+    const mapUrl = safeExternalUrl(o.customer_location_link) || googleMapsUrl(orderCustomerLat(o), orderCustomerLng(o));
+    const canManage = isAdminOrOperations();
+    openModal(`${modalHeader(`الطلب ${orderCode(o)}`, statusLabel(o.status))}
+      <div class="info-grid">
+        <div class="info-box"><small>المحل</small><strong>${escapeHTML(shopName(o))}</strong></div>
+        <div class="info-box"><small>المندوب</small><strong>${escapeHTML(courierName(o))}</strong></div>
+        <div class="info-box"><small>الزبون</small><strong>${escapeHTML(customerName(o))}</strong></div>
+        <div class="info-box"><small>الهاتف</small><strong>${escapeHTML(phone || "—")}</strong></div>
+        <div class="info-box"><small>منطقة التوصيل</small><strong>${escapeHTML(o.delivery_area || "—")}</strong></div>
+        <div class="info-box"><small>أجرة التوصيل</small><strong>${money(orderFee(o))}</strong></div>
+        <div class="info-box"><small>قيمة البضاعة</small><strong>${money(orderGoods(o))}</strong></div>
+        <div class="info-box"><small>المبلغ للتحصيل</small><strong>${money(amountToCollect(o))}</strong></div>
+      </div>
+      <div class="card" style="margin-top:12px"><small class="muted">العنوان</small><p>${escapeHTML(orderAddress(o) || "—")}</p>${o.nearest_landmark ? `<small class="muted">أقرب نقطة: ${escapeHTML(o.nearest_landmark)}</small>` : ""}</div>
+      <div class="actions">
+        ${phone ? `<a class="success-btn link-btn" href="tel:${escapeHTML(phone)}">📞 اتصال</a><a class="success-btn link-btn" target="_blank" rel="noopener" href="https://wa.me/${normalizeIraqiPhone(phone)}">واتساب</a>` : ""}
+        ${mapUrl ? `<a class="ghost-btn link-btn" target="_blank" rel="noopener" href="${escapeHTML(mapUrl)}">📍 فتح الموقع</a>` : ""}
+      </div>
+      ${canManage ? `<div class="section-title"><h2>إدارة الطلب</h2></div><div class="form-grid"><div class="field"><label>المندوب</label><select id="editOrderCourier"><option value="">غير مسند</option>${courierOptions(o.courier_id)}</select></div><div class="field"><label>الحالة</label><select id="editOrderStatus">${Object.entries(STATUS_LABELS).map(([v,l])=>`<option value="${v}" ${o.status===v?"selected":""}>${escapeHTML(l)}</option>`).join("")}</select></div></div><div class="form-actions"><button id="saveOrderManage" class="primary-btn">حفظ التغييرات</button></div>` : ""}`);
+    qs("#saveOrderManage")?.addEventListener("click", () => saveManagedOrder(o));
+  }
 
-      if (saveButton) {
-        saveButton.disabled =
-          false;
-
-        saveButton.textContent =
-          "إنشاء الطلب";
-      }
-    }
+  async function saveManagedOrder(order) {
+    const btn = qs("#saveOrderManage");
+    const courierId = qs("#editOrderCourier")?.value || null;
+    const status = qs("#editOrderStatus")?.value || order.status;
+    const courier = state.couriers.find(x => String(x.id) === String(courierId));
+    const now = new Date().toISOString();
+    const payload = { courier_id: courierId, courier: courier?.name || null, status, updated_at: now };
+    if (courierId && !order.courier_id) payload.assigned_at = now;
+    if (status === "accepted") payload.accepted_at = now;
+    if (status === "picked_up") payload.picked_up_at = now;
+    if (status === "on_the_way") payload.on_the_way_at = now;
+    if (status === "delivered") payload.delivered_at = now;
+    if (status === "returned") payload.returned_at = now;
+    if (status === "cancelled") payload.cancelled_at = now;
+    setBusy(btn,true,"جاري الحفظ...");
+    try {
+      const { error } = await resilientUpdate("orders", payload, "id", order.id);
+      if (error) throw error;
+      closeModal(); await loadAll(false); renderPage(); toast("تم تحديث الطلب.");
+    } catch (error) { toast("تعذر تحديث الطلب: " + (error?.message || "خطأ"), "error"); }
+    finally { setBusy(btn,false); }
   }
 
   /* =========================================================
-     OPEN ORDER
-     ========================================================= */
-
-  function openOrder(order) {
-    if (!order) return;
-
-    /*
-      المندوب لا يصل لهذه النافذة
-      للعرض غير المقبول. طلباته هنا
-      مسندة له بالفعل.
-    */
-
-    const courier =
-      getCourier(order);
-
-    const shop =
-      getShop(order);
-
-    const canManage =
-      isAdminOrOperations();
-
-    const canSeeCustomer =
-      canManage ||
-      isShop() ||
-      (
-        isCourier() &&
-        String(order.courier_id) ===
-          String(
-            state.currentCourier?.id
-          )
-      );
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <small>الطلب</small>
-
-          <h2>
-            ${escapeHTML(
-              orderCode(order)
-            )}
-          </h2>
-
-          ${statusBadge(
-            order.status
-          )}
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="order-detail-grid">
-        <div class="detail-box">
-          <small>المحل</small>
-          <strong>
-            ${escapeHTML(
-              shop?.name ||
-              orderShopName(order)
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>المندوب</small>
-          <strong>
-            ${escapeHTML(
-              courier?.name ||
-              orderCourierName(order)
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>منطقة الاستلام</small>
-          <strong>
-            ${escapeHTML(
-              order.pickup_area ||
-              shop?.area ||
-              "—"
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>منطقة التوصيل</small>
-          <strong>
-            ${escapeHTML(
-              order.delivery_area ||
-              "—"
-            )}
-          </strong>
-        </div>
-
-        ${
-          canSeeCustomer
-            ? `
-              <div class="detail-box">
-                <small>الزبون</small>
-                <strong>
-                  ${escapeHTML(
-                    orderCustomerName(
-                      order
-                    )
-                  )}
-                </strong>
-              </div>
-
-              <div class="detail-box">
-                <small>الهاتف</small>
-                <strong>
-                  ${escapeHTML(
-                    orderCustomerPhone(
-                      order
-                    ) ||
-                    "—"
-                  )}
-                </strong>
-              </div>
-
-              <div class="detail-box full">
-                <small>
-                  العنوان التفصيلي
-                </small>
-
-                <strong>
-                  ${escapeHTML(
-                    orderAddress(order) ||
-                    "—"
-                  )}
-                </strong>
-              </div>
-            `
-            : ""
-        }
-
-        <div class="detail-box">
-          <small>قيمة البضاعة</small>
-          <strong>
-            ${money(
-              order.goods_value
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>أجرة التوصيل</small>
-          <strong>
-            ${money(
-              orderDeliveryFee(
-                order
-              )
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>طريقة الدفع</small>
-          <strong>
-            ${escapeHTML(
-              paymentLabel(
-                orderPaymentMode(
-                  order
-                )
-              )
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>
-            أجرة التوصيل على
-          </small>
-
-          <strong>
-            ${escapeHTML(
-              payerLabel(
-                orderDeliveryPayer(
-                  order
-                )
-              )
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>
-            المبلغ المطلوب جمعه
-          </small>
-
-          <strong>
-            ${money(
-              calculateAmountToCollect(
-                order
-              )
-            )}
-          </strong>
-        </div>
-
-        <div class="detail-box">
-          <small>تاريخ الإنشاء</small>
-          <strong>
-            ${dateTime(
-              order.created_at
-            )}
-          </strong>
-        </div>
-
-        ${
-          order.notes
-            ? `
-              <div class="detail-box full">
-                <small>الملاحظات</small>
-
-                <strong>
-                  ${escapeHTML(
-                    order.notes
-                  )}
-                </strong>
-              </div>
-            `
-            : ""
-        }
-      </div>
-
-      ${
-        canManage
-          ? managementOrderControls(
-              order
-            )
-          : ""
-      }
-
-      <div class="form-actions">
-        <button
-          class="btn btn-ghost"
-          data-close
-        >
-          إغلاق
-        </button>
-      </div>
-    `);
-
-    bindManagementOrderControls(
-      order
-    );
-  }
-
-  function managementOrderControls(
-    order
-  ) {
-    const closed =
-      CLOSED_ORDER_STATUSES
-        .includes(order.status);
-
-    return `
-      <div
-        class="card"
-        style="margin-top:16px"
-      >
-        <h3>إدارة الطلب</h3>
-
-        <div class="form-grid">
-          <div class="field">
-            <label>المندوب</label>
-
-            <select
-              id="manageOrderCourier"
-              ${closed
-                ? "disabled"
-                : ""}
-            >
-              <option value="">
-                بدون مندوب
-              </option>
-
-              ${state.couriers
-                .filter(
-                  courier =>
-                    courier.is_active !==
-                      false &&
-                    !courier.archived_at
-                )
-                .map(
-                  courier => `
-                    <option
-                      value="${courier.id}"
-                      ${
-                        String(
-                          courier.id
-                        ) ===
-                        String(
-                          order.courier_id
-                        )
-                          ? "selected"
-                          : ""
-                      }
-                    >
-                      ${escapeHTML(
-                        courier.name
-                      )}
-                    </option>
-                  `
-                )
-                .join("")}
-            </select>
-          </div>
-
-          <div class="field">
-            <label>الحالة</label>
-
-            <select
-              id="manageOrderStatus"
-            >
-              ${[
-                "new",
-                "accepted",
-                "picked_up",
-                "on_the_way",
-                "delivered",
-                "returned",
-                "cancelled"
-              ]
-                .map(
-                  status => `
-                    <option
-                      value="${status}"
-                      ${
-                        order.status ===
-                        status
-                          ? "selected"
-                          : ""
-                      }
-                    >
-                      ${escapeHTML(
-                        statusLabel(
-                          status
-                        )
-                      )}
-                    </option>
-                  `
-                )
-                .join("")}
-            </select>
-          </div>
-
-          <div class="field full">
-            <label>
-              ملاحظة التغيير
-            </label>
-
-            <textarea
-              id="manageOrderNote"
-              rows="2"
-              placeholder="اختياري"
-            ></textarea>
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button
-            class="btn btn-primary"
-            id="saveManagedOrder"
-          >
-            حفظ التغيير
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  function bindManagementOrderControls(
-    order
-  ) {
-    $("#saveManagedOrder")
-      ?.addEventListener(
-        "click",
-        () =>
-          saveManagedOrder(
-            order
-          )
-      );
-  }
-
-  async function saveManagedOrder(
-    order
-  ) {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    const courierId =
-      $("#manageOrderCourier")
-        ?.value ||
-      null;
-
-    const status =
-      $("#manageOrderStatus")
-        ?.value ||
-      order.status;
-
-    const note =
-      $("#manageOrderNote")
-        ?.value?.trim() ||
-      null;
-
-    const courier =
-      state.couriers.find(
-        item =>
-          String(item.id) ===
-          String(courierId)
-      );
-
-    const oldStatus =
-      order.status;
-
-    const payload = {
-      courier_id:
-        courierId,
-      courier:
-        courier?.name || null,
-      status,
-      status_note:
-        note,
-      updated_at:
-        new Date().toISOString()
-    };
-
-    if (
-      courierId &&
-      String(courierId) !==
-        String(order.courier_id)
-    ) {
-      payload.assigned_at =
-        new Date().toISOString();
-
-      payload.assigned_by =
-        state.session.user.id;
-
-      if (status === "new") {
-        payload.status =
-          "accepted";
-      }
-    }
-
-    if (
-      status === "cancelled" &&
-      oldStatus !== "cancelled"
-    ) {
-      payload.cancelled_at =
-        new Date().toISOString();
-
-      payload.cancelled_reason =
-        note ||
-        "إلغاء من الإدارة";
-    }
-
-    if (
-      status === "returned" &&
-      oldStatus !== "returned"
-    ) {
-      payload.returned_at =
-        new Date().toISOString();
-
-      payload.returned_reason =
-        note ||
-        "راجع بواسطة الإدارة";
-    }
-
-    if (
-      status === "picked_up" &&
-      !order.picked_up_at
-    ) {
-      payload.picked_up_at =
-        new Date().toISOString();
-    }
-
-    if (
-      status === "on_the_way" &&
-      !order.on_the_way_at
-    ) {
-      payload.on_the_way_at =
-        new Date().toISOString();
-    }
-
-    if (
-      status === "delivered" &&
-      !order.delivered_at
-    ) {
-      payload.delivered_at =
-        new Date().toISOString();
-    }
-
-    try {
-      const { error } =
-        await sb
-          .from("orders")
-          .update(payload)
-          .eq("id", order.id);
-
-      if (error) {
-        throw error;
-      }
-
-      /*
-        إضافة سجل تدقيق للحالة.
-        إذا كان عندنا trigger في قاعدة
-        البيانات سيبقى هو المرجع الأساسي.
-      */
-      if (
-        oldStatus !==
-        payload.status
-      ) {
-        try {
-          await sb
-            .from(
-              "order_status_history"
-            )
-            .insert({
-              order_id:
-                order.id,
-              old_status:
-                oldStatus,
-              new_status:
-                payload.status,
-              status:
-                payload.status,
-              changed_by:
-                state.session.user.id,
-              note,
-              notes: note,
-              metadata: {
-                source:
-                  "management_ui",
-                courier_id:
-                  courierId
-              }
-            });
-        } catch (historyError) {
-          console.warn(
-            historyError
-          );
-        }
-      }
-
-      closeModal();
-
-      await loadOrders();
-
-      renderPage();
-
-      toast(
-        "تم تحديث الطلب."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر تحديث الطلب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-    /* =========================================================
-     SHOPS PAGE
+     SHOPS
      ========================================================= */
 
   function renderShops() {
-    if (!isAdminOrOperations()) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
-
-    setTitle(
-      "المحلات",
-      "إدارة المحلات المتعاونة مع وصلّي"
-    );
-
-    const activeShops =
-      state.shops.filter(
-        shop =>
-          shop.is_active !== false &&
-          !shop.archived_at
-      );
-
-    const archivedShops =
-      state.shops.filter(
-        shop =>
-          shop.is_active === false ||
-          shop.archived_at
-      );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="stats-grid">
-        ${dashboardStat(
-          "🏪",
-          "المحلات الفعالة",
-          activeShops.length
-        )}
-
-        ${dashboardStat(
-          "📦",
-          "طلبات المحلات",
-          state.orders.filter(
-            order => order.shop_id
-          ).length
-        )}
-
-        ${dashboardStat(
-          "🗃️",
-          "مؤرشفة",
-          archivedShops.length
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>المحلات</h2>
-
-            <p>
-              ${activeShops.length}
-              محل فعال
-            </p>
-          </div>
-
-          <div class="entity-actions">
-            <button
-              type="button"
-              class="btn btn-primary"
-              id="addShopBtn"
-            >
-              + إضافة محل
-            </button>
-
-            ${
-              isAdmin() &&
-              archivedShops.length
-                ? `
-                  <button
-                    type="button"
-                    class="btn btn-ghost"
-                    id="showArchivedShopsBtn"
-                  >
-                    الأرشيف
-                  </button>
-                `
-                : ""
-            }
-          </div>
-        </div>
-
-        <div class="order-filter-bar">
-          <input
-            id="shopSearch"
-            type="search"
-            placeholder="بحث باسم المحل أو الهاتف أو المنطقة..."
-          />
-        </div>
-
-        <div
-          id="shopsResults"
-          class="entity-card-grid"
-        >
-          ${renderShopCards(
-            activeShops
-          )}
-        </div>
-      </div>
-    `;
-
-    $("#addShopBtn")
-      ?.addEventListener(
-        "click",
-        openShopModal
-      );
-
-    $("#showArchivedShopsBtn")
-      ?.addEventListener(
-        "click",
-        openArchivedShopsModal
-      );
-
-    $("#shopSearch")
-      ?.addEventListener(
-        "input",
-        event => {
-          const value =
-            event.target.value
-              .trim()
-              .toLowerCase();
-
-          const filtered =
-            activeShops.filter(
-              shop =>
-                [
-                  shop.name,
-                  shop.phone,
-                  shop.area,
-                  shop.address,
-                  shop.detailed_address
-                ]
-                  .join(" ")
-                  .toLowerCase()
-                  .includes(value)
-            );
-
-          const target =
-            $("#shopsResults");
-
-          if (target) {
-            target.innerHTML =
-              renderShopCards(
-                filtered
-              );
-
-            bindShopActions();
-          }
-        }
-      );
-
+    if (!isAdminOrOperations()) return goDashboard();
+    setPageTitle("المحلات", "إدارة المحلات المتعاونة مع وصلّي");
+    const active = state.shops.filter(s => s.is_active !== false && !s.archived_at);
+    const archived = state.shops.filter(s => s.is_active === false || s.archived_at);
+    qs("#content").innerHTML = `<div class="card"><div class="card-header"><div><h2>المحلات</h2><p>${active.length} محل فعال</p></div><button id="addShopBtn" class="primary-btn">+ إضافة محل</button></div><input id="shopSearch" class="filter-input" placeholder="بحث باسم المحل أو الهاتف أو المنطقة..." style="margin-bottom:13px"><div id="shopsGrid" class="entity-grid">${shopCards(active)}</div></div>${archived.length ? `<div class="card"><div class="card-header"><h2>الأرشيف</h2><span class="badge">${archived.length}</span></div><div class="entity-grid">${shopCards(archived,true)}</div></div>` : ""}`;
+    qs("#addShopBtn")?.addEventListener("click", () => openShopModal());
+    qs("#shopSearch")?.addEventListener("input", e => { const t=e.target.value.toLowerCase(); const list=active.filter(s=>[s.name,s.phone,s.area,s.address].join(" ").toLowerCase().includes(t)); if(qs("#shopsGrid")) qs("#shopsGrid").innerHTML=shopCards(list); bindShopActions(); });
     bindShopActions();
   }
 
-  function renderShopCards(shops) {
-    if (!shops.length) {
-      return `
-        <div class="empty-state">
-          لا توجد محلات.
-        </div>
-      `;
-    }
-
-    return shops
-      .map(shop => {
-        const orders =
-          state.orders.filter(
-            order =>
-              String(
-                order.shop_id
-              ) ===
-              String(shop.id)
-          );
-
-        const activeOrders =
-          orders.filter(order =>
-            [
-              "new",
-              ...ACTIVE_ORDER_STATUSES
-            ].includes(
-              order.status
-            )
-          ).length;
-
-        const delivered =
-          orders.filter(
-            order =>
-              order.status ===
-              "delivered"
-          ).length;
-
-        return `
-          <article class="entity-card">
-            <div class="entity-card-head">
-              <div
-                class="entity-avatar"
-              >
-                🏪
-              </div>
-
-              <div>
-                <h3>
-                  ${escapeHTML(
-                    shop.name ||
-                    "محل"
-                  )}
-                </h3>
-
-                <p>
-                  ${escapeHTML(
-                    shop.area ||
-                    CITY
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div class="entity-info">
-              <div>
-                <small>
-                  الهاتف
-                </small>
-
-                <strong>
-                  ${escapeHTML(
-                    shop.phone ||
-                    "—"
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  طلبات نشطة
-                </small>
-
-                <strong>
-                  ${activeOrders}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  تم التسليم
-                </small>
-
-                <strong>
-                  ${delivered}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  كل الطلبات
-                </small>
-
-                <strong>
-                  ${orders.length}
-                </strong>
-              </div>
-            </div>
-
-            <div class="entity-actions">
-              <button
-                type="button"
-                class="btn btn-ghost"
-                data-edit-shop="${shop.id}"
-              >
-                تعديل
-              </button>
-
-              ${
-                shop.phone
-                  ? `
-                    <button
-                      type="button"
-                      class="btn btn-ghost"
-                      data-shop-call="${escapeHTML(
-                        shop.phone
-                      )}"
-                    >
-                      اتصال
-                    </button>
-                  `
-                  : ""
-              }
-
-              ${
-                isAdmin()
-                  ? `
-                    <button
-                      type="button"
-                      class="btn archive-button"
-                      data-delete-shop="${shop.id}"
-                    >
-                      حذف
-                    </button>
-                  `
-                  : ""
-              }
-            </div>
-          </article>
-        `;
-      })
-      .join("");
+  function shopCards(list, archived = false) {
+    if (!list.length) return `<div class="empty">لا توجد محلات.</div>`;
+    return list.map(s => `<article class="entity-card"><div class="entity-head"><div class="entity-icon">🏪</div><div><h3>${escapeHTML(s.name || "محل")}</h3><p>${escapeHTML(s.area || "—")}</p></div></div><div class="info-grid"><div class="info-box"><small>الهاتف</small><strong>${escapeHTML(s.phone || "—")}</strong></div><div class="info-box"><small>الحالة</small><strong>${archived?"مؤرشف":"فعال"}</strong></div></div><div class="actions"><button class="ghost-btn btn-sm" data-edit-shop="${escapeHTML(s.id)}">تعديل</button>${isAdmin()?`<button class="${archived?"success-btn":"danger-btn"} btn-sm" data-toggle-shop="${escapeHTML(s.id)}" data-active="${archived?"1":"0"}">${archived?"استرجاع":"أرشفة"}</button>`:""}</div></article>`).join("");
   }
 
   function bindShopActions() {
-    $$("[data-edit-shop]")
-      .forEach(button => {
-        button.onclick = () => {
-          const shop =
-            state.shops.find(
-              item =>
-                String(item.id) ===
-                String(
-                  button.dataset
-                    .editShop
-                )
-            );
+    qsa("[data-edit-shop]").forEach(b=>b.addEventListener("click",()=>openShopModal(state.shops.find(s=>String(s.id)===String(b.dataset.editShop)))));
+    qsa("[data-toggle-shop]").forEach(b=>b.addEventListener("click",()=>toggleShop(b.dataset.toggleShop,b.dataset.active==="1")));
+  }
 
-          if (shop) {
-            openShopModal(shop);
-          }
-        };
-      });
+  function openShopModal(shop = null) {
+    openModal(`${modalHeader(shop?"تعديل محل":"إضافة محل")}<div class="form-grid"><div class="field"><label>اسم المحل</label><input id="shopName" value="${escapeHTML(shop?.name||"")}"></div><div class="field"><label>الهاتف</label><input id="shopPhone" value="${escapeHTML(shop?.phone||"")}"></div><div class="field"><label>المنطقة</label><input id="shopArea" value="${escapeHTML(shop?.area||"")}"></div><div class="field full"><label>العنوان</label><textarea id="shopAddress">${escapeHTML(shop?.address||"")}</textarea></div></div><div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="saveShopBtn" class="primary-btn">حفظ</button></div>`);
+    qs("#saveShopBtn")?.addEventListener("click",()=>saveShop(shop));
+  }
 
-    $$("[data-shop-call]")
-      .forEach(button => {
-        button.onclick = () =>
-          openExternal(
-            callUrl(
-              button.dataset
-                .shopCall
-            )
-          );
-      });
+  async function saveShop(shop) {
+    const btn=qs("#saveShopBtn"); const name=qs("#shopName")?.value?.trim(); if(!name)return toast("اسم المحل مطلوب.","warning");
+    const payload={name,phone:localPhone(qs("#shopPhone")?.value||""),area:qs("#shopArea")?.value?.trim()||null,address:qs("#shopAddress")?.value?.trim()||null,is_active:true,updated_at:new Date().toISOString()};
+    setBusy(btn,true,"جاري الحفظ...");
+    try{const r=shop?await resilientUpdate("shops",payload,"id",shop.id):await resilientInsert("shops",payload,false);if(r.error)throw r.error;closeModal();await loadAll(false);renderPage();toast("تم حفظ المحل.");}catch(e){toast("تعذر حفظ المحل: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}
+  }
 
-    $$("[data-delete-shop]")
-      .forEach(button => {
-        button.onclick = () =>
-          adminDeleteShop(
-            button.dataset
-              .deleteShop
-          );
-      });
+  async function toggleShop(id, active) {
+    const payload={is_active:active,archived_at:active?null:new Date().toISOString(),updated_at:new Date().toISOString()};
+    const r=await resilientUpdate("shops",payload,"id",id); if(r.error)return toast("تعذر تحديث المحل.","error"); await loadAll(false);renderPage();toast(active?"تم استرجاع المحل.":"تمت أرشفة المحل.");
   }
 
   /* =========================================================
-     ADD / EDIT SHOP
-     ========================================================= */
-
-  function openShopModal(
-    shop = null
-  ) {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    const editing =
-      Boolean(shop);
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>
-            ${
-              editing
-                ? "تعديل المحل"
-                : "إضافة محل"
-            }
-          </h2>
-
-          <p>
-            بيانات المحل وموقع الاستلام.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="form-grid">
-        <div class="field">
-          <label>
-            اسم المحل
-          </label>
-
-          <input
-            id="shopNameInput"
-            type="text"
-            value="${escapeHTML(
-              shop?.name || ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            رقم الهاتف
-          </label>
-
-          <input
-            id="shopPhoneInput"
-            type="tel"
-            value="${escapeHTML(
-              shop?.phone || ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            المنطقة
-          </label>
-
-          <input
-            id="shopAreaInput"
-            type="text"
-            value="${escapeHTML(
-              shop?.area || ""
-            )}"
-            placeholder="مثال: باب الخان"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            نوع النشاط
-          </label>
-
-          <input
-            id="shopTypeInput"
-            type="text"
-            value="${escapeHTML(
-              shop?.shop_type ||
-              shop?.category ||
-              ""
-            )}"
-            placeholder="مطعم، متجر، صيدلية..."
-          />
-        </div>
-
-        <div class="field full">
-          <label>
-            العنوان
-          </label>
-
-          <input
-            id="shopAddressInput"
-            type="text"
-            value="${escapeHTML(
-              shop?.detailed_address ||
-              shop?.address ||
-              ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            خط العرض
-          </label>
-
-          <input
-            id="shopLatInput"
-            type="number"
-            step="any"
-            value="${
-              shop?.latitude ??
-              shop?.lat ??
-              ""
-            }"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            خط الطول
-          </label>
-
-          <input
-            id="shopLngInput"
-            type="number"
-            step="any"
-            value="${
-              shop?.longitude ??
-              shop?.lng ??
-              ""
-            }"
-          />
-        </div>
-
-        <div class="field full">
-          <button
-            type="button"
-            class="btn btn-ghost"
-            id="shopUseCurrentLocation"
-          >
-            📍 استخدام موقعي الحالي
-          </button>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          type="button"
-          class="btn btn-ghost"
-          data-close
-        >
-          إلغاء
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-primary"
-          id="saveShopBtn"
-        >
-          ${
-            editing
-              ? "حفظ التعديلات"
-              : "إضافة المحل"
-          }
-        </button>
-      </div>
-    `);
-
-    $("#shopUseCurrentLocation")
-      ?.addEventListener(
-        "click",
-        async () => {
-          try {
-            const position =
-              await getCurrentPosition();
-
-            $("#shopLatInput").value =
-              position.coords.latitude;
-
-            $("#shopLngInput").value =
-              position.coords.longitude;
-
-            toast(
-              "تم تحديد الموقع."
-            );
-          } catch (error) {
-            toast(
-              "تعذر الحصول على الموقع.",
-              "error"
-            );
-          }
-        }
-      );
-
-    $("#saveShopBtn")
-      ?.addEventListener(
-        "click",
-        () =>
-          saveShop(shop)
-      );
-  }
-
-  async function saveShop(
-    existingShop = null
-  ) {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    const name =
-      $("#shopNameInput")
-        ?.value?.trim() ||
-      "";
-
-    const phone =
-      localPhone(
-        $("#shopPhoneInput")
-          ?.value ||
-        ""
-      );
-
-    const area =
-      $("#shopAreaInput")
-        ?.value?.trim() ||
-      "";
-
-    const address =
-      $("#shopAddressInput")
-        ?.value?.trim() ||
-      "";
-
-    const latRaw =
-      $("#shopLatInput")
-        ?.value;
-
-    const lngRaw =
-      $("#shopLngInput")
-        ?.value;
-
-    if (!name) {
-      toast(
-        "اكتب اسم المحل.",
-        "warning"
-      );
-      return;
-    }
-
-    const payload = {
-      name,
-      phone: phone || null,
-      area: area || null,
-      address:
-        address || null,
-      detailed_address:
-        address || null,
-      latitude:
-        latRaw !== ""
-          ? Number(latRaw)
-          : null,
-      longitude:
-        lngRaw !== ""
-          ? Number(lngRaw)
-          : null,
-      lat:
-        latRaw !== ""
-          ? Number(latRaw)
-          : null,
-      lng:
-        lngRaw !== ""
-          ? Number(lngRaw)
-          : null,
-      shop_type:
-        $("#shopTypeInput")
-          ?.value?.trim() ||
-        null,
-      is_active: true,
-      updated_at:
-        new Date().toISOString()
-    };
-
-    try {
-      let result;
-
-      if (existingShop) {
-        result =
-          await sb
-            .from("shops")
-            .update(payload)
-            .eq(
-              "id",
-              existingShop.id
-            );
-      } else {
-        result =
-          await sb
-            .from("shops")
-            .insert(payload);
-      }
-
-      if (result.error) {
-        throw result.error;
-      }
-
-      closeModal();
-
-      await loadShops();
-
-      renderPage();
-
-      toast(
-        existingShop
-          ? "تم تحديث المحل."
-          : "تمت إضافة المحل."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر حفظ المحل: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  /* =========================================================
-     ADMIN DELETE / ARCHIVE SHOP
-     ========================================================= */
-
-  async function adminDeleteShop(
-    shopId
-  ) {
-    if (!isAdmin()) {
-      toast(
-        "الحذف متاح للإدارة فقط.",
-        "error"
-      );
-      return;
-    }
-
-    const shop =
-      state.shops.find(
-        item =>
-          String(item.id) ===
-          String(shopId)
-      );
-
-    if (!shop) return;
-
-    const confirmed =
-      await confirmAction(
-        `هل تريد حذف "${shop.name}"؟ إذا كان للمحل سجل طلبات أو حسابات فسيتم أرشفته بدلاً من حذف بياناته التاريخية.`,
-        "تأكيد الحذف"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      const { data, error } =
-        await sb.rpc(
-          "wasalli_admin_delete_shop",
-          {
-            p_shop_id: shopId
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await Promise.all([
-        loadShops(),
-        loadOrders()
-      ]);
-
-      renderPage();
-
-      const action =
-        data?.action ||
-        data?.result ||
-        "";
-
-      toast(
-        String(action)
-          .toLowerCase()
-          .includes("archive")
-          ? "تمت أرشفة المحل مع الاحتفاظ بسجلاته."
-          : "تم حذف المحل."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر حذف المحل: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  function openArchivedShopsModal() {
-    if (!isAdmin()) return;
-
-    const archived =
-      state.shops.filter(
-        shop =>
-          shop.is_active === false ||
-          shop.archived_at
-      );
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>
-            أرشيف المحلات
-          </h2>
-
-          <p>
-            السجلات المؤرشفة محفوظة
-            لحماية تاريخ الطلبات والحسابات.
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      ${
-        archived.length
-          ? `
-            <div class="simple-list">
-              ${archived
-                .map(
-                  shop => `
-                    <div
-                      class="simple-list-item"
-                    >
-                      <div>
-                        <strong>
-                          ${escapeHTML(
-                            shop.name
-                          )}
-                        </strong>
-
-                        <span>
-                          ${escapeHTML(
-                            shop.area ||
-                            "—"
-                          )}
-                        </span>
-                      </div>
-
-                      <span
-                        class="wasalli-badge badge-warning"
-                      >
-                        مؤرشف
-                      </span>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-          : `
-            <div class="empty-state">
-              لا توجد محلات مؤرشفة.
-            </div>
-          `
-      }
-    `);
-  }
-
-  /* =========================================================
-     COURIERS PAGE
+     COURIERS
      ========================================================= */
 
   function renderCouriers() {
-    if (!isAdminOrOperations()) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
-
-    setTitle(
-      "المندوبون",
-      "إدارة المندوبين والدوام والتوفر"
-    );
-
-    const activeCouriers =
-      state.couriers.filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at
-      );
-
-    const archivedCouriers =
-      state.couriers.filter(
-        courier =>
-          courier.is_active === false ||
-          courier.archived_at
-      );
-
-    const onShift =
-      activeCouriers.filter(
-        courier =>
-          courier.is_on_shift
-      ).length;
-
-    const available =
-      activeCouriers.filter(
-        courier =>
-          courier.is_on_shift &&
-          (
-            courier.is_available ||
-            courier.status ===
-              "available"
-          )
-      ).length;
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="stats-grid">
-        ${dashboardStat(
-          "🛵",
-          "المندوبون",
-          activeCouriers.length
-        )}
-
-        ${dashboardStat(
-          "🟣",
-          "بالدوام",
-          onShift
-        )}
-
-        ${dashboardStat(
-          "🟢",
-          "متاحون",
-          available
-        )}
-
-        ${dashboardStat(
-          "🗃️",
-          "مؤرشفون",
-          archivedCouriers.length
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>
-              قائمة المندوبين
-            </h2>
-
-            <p>
-              متابعة حالة كل مندوب
-            </p>
-          </div>
-
-          <div class="entity-actions">
-            <button
-              type="button"
-              class="btn btn-primary"
-              id="addCourierBtn"
-            >
-              + إضافة مندوب
-            </button>
-
-            ${
-              isAdmin() &&
-              archivedCouriers.length
-                ? `
-                  <button
-                    type="button"
-                    class="btn btn-ghost"
-                    id="showArchivedCouriersBtn"
-                  >
-                    الأرشيف
-                  </button>
-                `
-                : ""
-            }
-          </div>
-        </div>
-
-        <div class="order-filter-bar">
-          <input
-            id="courierSearch"
-            type="search"
-            placeholder="بحث باسم المندوب أو الهاتف أو المنطقة..."
-          />
-        </div>
-
-        <div
-          id="couriersResults"
-          class="entity-card-grid"
-        >
-          ${renderCourierCards(
-            activeCouriers
-          )}
-        </div>
-      </div>
-    `;
-
-    $("#addCourierBtn")
-      ?.addEventListener(
-        "click",
-        openCourierModal
-      );
-
-    $("#showArchivedCouriersBtn")
-      ?.addEventListener(
-        "click",
-        openArchivedCouriersModal
-      );
-
-    $("#courierSearch")
-      ?.addEventListener(
-        "input",
-        event => {
-          const value =
-            event.target.value
-              .trim()
-              .toLowerCase();
-
-          const filtered =
-            activeCouriers.filter(
-              courier =>
-                [
-                  courier.name,
-                  courier.phone,
-                  courier.area,
-                  courier.vehicle_type,
-                  courier.vehicle_number
-                ]
-                  .join(" ")
-                  .toLowerCase()
-                  .includes(value)
-            );
-
-          const target =
-            $("#couriersResults");
-
-          if (target) {
-            target.innerHTML =
-              renderCourierCards(
-                filtered
-              );
-
-            bindCourierManagementActions();
-          }
-        }
-      );
-
-    bindCourierManagementActions();
+    if (!isAdminOrOperations()) return goDashboard();
+    setPageTitle("المندوبون", "إدارة المندوبين والدوام والتوفر");
+    const active=state.couriers.filter(c=>c.is_active!==false&&!c.archived_at); const archived=state.couriers.filter(c=>c.is_active===false||c.archived_at);
+    qs("#content").innerHTML=`<div class="stats-grid">${stat("🛵","المندوبون",active.length)}${stat("🟢","متاحون",active.filter(c=>c.is_on_shift&&(c.is_available||c.status==="available")).length)}${stat("⏱","بالدوام",active.filter(c=>c.is_on_shift).length)}${stat("📦","طلبات نشطة",state.orders.filter(o=>ACTIVE_STATUSES.includes(o.status)).length)}</div><div class="card"><div class="card-header"><div><h2>المندوبون</h2></div><button id="addCourierBtn" class="primary-btn">+ إضافة مندوب</button></div><input id="courierSearch" class="filter-input" placeholder="بحث بالاسم أو الهاتف أو المنطقة..." style="margin-bottom:13px"><div id="couriersGrid" class="entity-grid">${courierCards(active)}</div></div>${archived.length?`<div class="card"><div class="card-header"><h2>الأرشيف</h2></div><div class="entity-grid">${courierCards(archived,true)}</div></div>`:""}`;
+    qs("#addCourierBtn")?.addEventListener("click",()=>openCourierModal());
+    qs("#courierSearch")?.addEventListener("input",e=>{const t=e.target.value.toLowerCase();const l=active.filter(c=>[c.name,c.phone,c.area,c.vehicle_type,c.vehicle_number].join(" ").toLowerCase().includes(t));if(qs("#couriersGrid"))qs("#couriersGrid").innerHTML=courierCards(l);bindCourierManagement();});
+    bindCourierManagement();
   }
 
-  function renderCourierCards(
-    couriers
-  ) {
-    if (!couriers.length) {
-      return `
-        <div class="empty-state">
-          لا يوجد مندوبون.
-        </div>
-      `;
-    }
-
-    return couriers
-      .map(courier => {
-        const orders =
-          state.orders.filter(
-            order =>
-              String(
-                order.courier_id
-              ) ===
-              String(courier.id)
-          );
-
-        const activeOrders =
-          orders.filter(order =>
-            ACTIVE_ORDER_STATUSES.includes(
-              order.status
-            )
-          ).length;
-
-        const deliveredToday =
-          orders.filter(
-            order =>
-              order.status ===
-                "delivered" &&
-              isToday(
-                order.delivered_at
-              )
-          ).length;
-
-        const available =
-          courier.is_on_shift &&
-          (
-            courier.is_available ||
-            courier.status ===
-              "available"
-          );
-
-        return `
-          <article class="entity-card">
-            <div class="entity-card-head">
-              <div
-                class="entity-avatar"
-              >
-                🛵
-              </div>
-
-              <div>
-                <h3>
-                  ${escapeHTML(
-                    courier.name ||
-                    "مندوب"
-                  )}
-                </h3>
-
-                <p>
-                  ${escapeHTML(
-                    courier.area ||
-                    CITY
-                  )}
-                </p>
-              </div>
-
-              <span
-                class="wasalli-badge ${
-                  available
-                    ? "badge-success"
-                    : courier.is_on_shift
-                      ? "badge-warning"
-                      : ""
-                }"
-              >
-                ${
-                  available
-                    ? "متاح"
-                    : courier.is_on_shift
-                      ? "غير متاح"
-                      : "خارج الدوام"
-                }
-              </span>
-            </div>
-
-            <div class="entity-info">
-              <div>
-                <small>
-                  الهاتف
-                </small>
-
-                <strong>
-                  ${escapeHTML(
-                    courier.phone ||
-                    "—"
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  طلبات نشطة
-                </small>
-
-                <strong>
-                  ${activeOrders}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  تسليم اليوم
-                </small>
-
-                <strong>
-                  ${deliveredToday}
-                </strong>
-              </div>
-
-              <div>
-                <small>
-                  الحد الأقصى
-                </small>
-
-                <strong>
-                  ${
-                    courier.max_active_orders ??
-                    DEFAULT_MAX_ACTIVE_ORDERS
-                  }
-                </strong>
-              </div>
-            </div>
-
-            ${
-              courier.vehicle_type ||
-              courier.vehicle_number
-                ? `
-                  <div
-                    style="
-                      margin-top:10px;
-                      font-size:13px;
-                      opacity:.75
-                    "
-                  >
-                    ${
-                      courier.vehicle_type
-                        ? escapeHTML(
-                            courier.vehicle_type
-                          )
-                        : ""
-                    }
-
-                    ${
-                      courier.vehicle_number
-                        ? ` — ${escapeHTML(
-                            courier.vehicle_number
-                          )}`
-                        : ""
-                    }
-                  </div>
-                `
-                : ""
-            }
-
-            ${
-              courier.last_location_at
-                ? `
-                  <div
-                    style="
-                      margin-top:7px;
-                      font-size:12px;
-                      opacity:.65
-                    "
-                  >
-                    آخر تحديث للموقع:
-                    ${dateTime(
-                      courier.last_location_at
-                    )}
-                  </div>
-                `
-                : ""
-            }
-
-            <div class="entity-actions">
-              <button
-                type="button"
-                class="btn btn-ghost"
-                data-edit-courier="${courier.id}"
-              >
-                تعديل
-              </button>
-
-              ${
-                courier.phone
-                  ? `
-                    <button
-                      type="button"
-                      class="btn btn-ghost"
-                      data-courier-call="${escapeHTML(
-                        courier.phone
-                      )}"
-                    >
-                      اتصال
-                    </button>
-                  `
-                  : ""
-              }
-
-              ${
-                courier.latitude !==
-                  null &&
-                courier.latitude !==
-                  undefined &&
-                courier.longitude !==
-                  null &&
-                courier.longitude !==
-                  undefined
-                  ? `
-                    <button
-                      type="button"
-                      class="btn btn-ghost"
-                      data-courier-map="${courier.latitude},${courier.longitude}"
-                    >
-                      الموقع
-                    </button>
-                  `
-                  : ""
-              }
-
-              ${
-                isAdmin()
-                  ? `
-                    <button
-                      type="button"
-                      class="btn archive-button"
-                      data-delete-courier="${courier.id}"
-                    >
-                      حذف
-                    </button>
-                  `
-                  : ""
-              }
-            </div>
-          </article>
-        `;
-      })
-      .join("");
+  function courierCards(list, archived=false) {
+    if(!list.length)return `<div class="empty">لا يوجد مندوبون.</div>`;
+    return list.map(c=>{const activeOrders=state.orders.filter(o=>String(o.courier_id)===String(c.id)&&ACTIVE_STATUSES.includes(o.status)).length;const available=c.is_on_shift&&(c.is_available||c.status==="available");return `<article class="entity-card"><div class="entity-head"><div class="entity-icon">🛵</div><div><h3>${escapeHTML(c.name||"مندوب")}</h3><p>${escapeHTML(c.area||"—")}</p></div></div><div class="info-grid"><div class="info-box"><small>الهاتف</small><strong>${escapeHTML(c.phone||"—")}</strong></div><div class="info-box"><small>الحالة</small><strong class="${available?"success-text":""}">${archived?"مؤرشف":available?"متاح":c.is_on_shift?"غير متاح":"خارج الدوام"}</strong></div><div class="info-box"><small>طلبات نشطة</small><strong>${activeOrders}</strong></div><div class="info-box"><small>المركبة</small><strong>${escapeHTML(c.vehicle_type||"—")}</strong></div></div><div class="actions"><button class="ghost-btn btn-sm" data-edit-courier="${escapeHTML(c.id)}">تعديل</button>${isAdmin()?`<button class="${archived?"success-btn":"danger-btn"} btn-sm" data-toggle-courier="${escapeHTML(c.id)}" data-active="${archived?"1":"0"}">${archived?"استرجاع":"أرشفة"}</button>`:""}</div></article>`}).join("");
   }
 
-  function bindCourierManagementActions() {
-    $$("[data-edit-courier]")
-      .forEach(button => {
-        button.onclick = () => {
-          const courier =
-            state.couriers.find(
-              item =>
-                String(item.id) ===
-                String(
-                  button.dataset
-                    .editCourier
-                )
-            );
+  function bindCourierManagement(){qsa("[data-edit-courier]").forEach(b=>b.addEventListener("click",()=>openCourierModal(state.couriers.find(c=>String(c.id)===String(b.dataset.editCourier)))));qsa("[data-toggle-courier]").forEach(b=>b.addEventListener("click",()=>toggleCourier(b.dataset.toggleCourier,b.dataset.active==="1")));}
 
-          if (courier) {
-            openCourierModal(
-              courier
-            );
-          }
-        };
-      });
+  function openCourierModal(c=null){openModal(`${modalHeader(c?"تعديل مندوب":"إضافة مندوب")}<div class="form-grid"><div class="field"><label>الاسم</label><input id="courierName" value="${escapeHTML(c?.name||"")}"></div><div class="field"><label>الهاتف</label><input id="courierPhone" value="${escapeHTML(c?.phone||"")}"></div><div class="field"><label>المنطقة</label><input id="courierArea" value="${escapeHTML(c?.area||"")}"></div><div class="field"><label>نوع المركبة</label><input id="courierVehicle" value="${escapeHTML(c?.vehicle_type||"")}"></div><div class="field"><label>رقم المركبة</label><input id="courierVehicleNo" value="${escapeHTML(c?.vehicle_number||"")}"></div><div class="field"><label>الحد الأعلى للطلبات النشطة</label><input id="courierMax" type="number" min="1" value="${safeNumber(c?.max_active_orders||setting("default_max_active_orders",DEFAULTS.maxActiveOrders))}"></div></div><div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="saveCourierBtn" class="primary-btn">حفظ</button></div>`);qs("#saveCourierBtn")?.addEventListener("click",()=>saveCourier(c));}
 
-    $$("[data-courier-call]")
-      .forEach(button => {
-        button.onclick = () =>
-          openExternal(
-            callUrl(
-              button.dataset
-                .courierCall
-            )
-          );
-      });
+  async function saveCourier(c){const btn=qs("#saveCourierBtn");const name=qs("#courierName")?.value?.trim();if(!name)return toast("اسم المندوب مطلوب.","warning");const payload={name,phone:localPhone(qs("#courierPhone")?.value||""),area:qs("#courierArea")?.value?.trim()||null,vehicle_type:qs("#courierVehicle")?.value?.trim()||null,vehicle_number:qs("#courierVehicleNo")?.value?.trim()||null,max_active_orders:Math.max(1,safeNumber(qs("#courierMax")?.value,DEFAULTS.maxActiveOrders)),is_active:true,updated_at:new Date().toISOString()};setBusy(btn,true,"جاري الحفظ...");try{const r=c?await resilientUpdate("couriers",payload,"id",c.id):await resilientInsert("couriers",{...payload,status:"unavailable",is_available:false,is_on_shift:false},false);if(r.error)throw r.error;closeModal();await loadAll(false);renderPage();toast("تم حفظ المندوب.");}catch(e){toast("تعذر حفظ المندوب: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}}
 
-    $$("[data-courier-map]")
-      .forEach(button => {
-        button.onclick = () => {
-          const [lat, lng] =
-            String(
-              button.dataset
-                .courierMap
-            )
-              .split(",")
-              .map(Number);
-
-          openExternal(
-            googleMapsUrl(
-              lat,
-              lng
-            )
-          );
-        };
-      });
-
-    $$("[data-delete-courier]")
-      .forEach(button => {
-        button.onclick = () =>
-          adminDeleteCourier(
-            button.dataset
-              .deleteCourier
-          );
-      });
-  }
+  async function toggleCourier(id,active){const r=await resilientUpdate("couriers",{is_active:active,archived_at:active?null:new Date().toISOString(),updated_at:new Date().toISOString()},"id",id);if(r.error)return toast("تعذر تحديث المندوب.","error");await loadAll(false);renderPage();toast(active?"تم استرجاع المندوب.":"تمت أرشفة المندوب.");}
 
   /* =========================================================
-     ADD / EDIT COURIER
-     ========================================================= */
-
-  function openCourierModal(
-    courier = null
-  ) {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    const editing =
-      Boolean(courier);
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>
-            ${
-              editing
-                ? "تعديل المندوب"
-                : "إضافة مندوب"
-            }
-          </h2>
-
-          <p>
-            بيانات المندوب وإعدادات التشغيل.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="form-grid">
-        <div class="field">
-          <label>
-            اسم المندوب
-          </label>
-
-          <input
-            id="courierNameInput"
-            type="text"
-            value="${escapeHTML(
-              courier?.name || ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            رقم الهاتف
-          </label>
-
-          <input
-            id="courierPhoneInput"
-            type="tel"
-            value="${escapeHTML(
-              courier?.phone || ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            المنطقة
-          </label>
-
-          <input
-            id="courierAreaInput"
-            type="text"
-            value="${escapeHTML(
-              courier?.area || ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            نوع المركبة
-          </label>
-
-          <input
-            id="courierVehicleInput"
-            type="text"
-            value="${escapeHTML(
-              courier?.vehicle_type ||
-              ""
-            )}"
-            placeholder="دراجة نارية"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            رقم المركبة
-          </label>
-
-          <input
-            id="courierVehicleNumberInput"
-            type="text"
-            value="${escapeHTML(
-              courier?.vehicle_number ||
-              ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            هاتف الطوارئ
-          </label>
-
-          <input
-            id="courierEmergencyInput"
-            type="tel"
-            value="${escapeHTML(
-              courier?.emergency_phone ||
-              ""
-            )}"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            أقصى عدد طلبات نشطة
-          </label>
-
-          <input
-            id="courierMaxOrdersInput"
-            type="number"
-            min="1"
-            max="20"
-            value="${
-              courier?.max_active_orders ??
-              DEFAULT_MAX_ACTIVE_ORDERS
-            }"
-          />
-        </div>
-
-        <div class="field">
-          <label>
-            حالة الحساب
-          </label>
-
-          <select
-            id="courierActiveInput"
-          >
-            <option
-              value="true"
-              ${
-                courier?.is_active !==
-                false
-                  ? "selected"
-                  : ""
-              }
-            >
-              فعال
-            </option>
-
-            <option
-              value="false"
-              ${
-                courier?.is_active ===
-                false
-                  ? "selected"
-                  : ""
-              }
-            >
-              متوقف
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          type="button"
-          class="btn btn-ghost"
-          data-close
-        >
-          إلغاء
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-primary"
-          id="saveCourierBtn"
-        >
-          ${
-            editing
-              ? "حفظ التعديلات"
-              : "إضافة المندوب"
-          }
-        </button>
-      </div>
-    `);
-
-    $("#saveCourierBtn")
-      ?.addEventListener(
-        "click",
-        () =>
-          saveCourier(courier)
-      );
-  }
-
-  async function saveCourier(
-    existingCourier = null
-  ) {
-    if (!isAdminOrOperations()) {
-      return;
-    }
-
-    const name =
-      $("#courierNameInput")
-        ?.value?.trim() ||
-      "";
-
-    const phone =
-      localPhone(
-        $("#courierPhoneInput")
-          ?.value ||
-        ""
-      );
-
-    if (!name) {
-      toast(
-        "اكتب اسم المندوب.",
-        "warning"
-      );
-      return;
-    }
-
-    const payload = {
-      name,
-      phone:
-        phone || null,
-
-      area:
-        $("#courierAreaInput")
-          ?.value?.trim() ||
-        null,
-
-      vehicle_type:
-        $("#courierVehicleInput")
-          ?.value?.trim() ||
-        null,
-
-      vehicle_number:
-        $("#courierVehicleNumberInput")
-          ?.value?.trim() ||
-        null,
-
-      emergency_phone:
-        localPhone(
-          $("#courierEmergencyInput")
-            ?.value ||
-          ""
-        ) || null,
-
-      max_active_orders:
-        Math.max(
-          1,
-          safeNumber(
-            $("#courierMaxOrdersInput")
-              ?.value ||
-            DEFAULT_MAX_ACTIVE_ORDERS
-          )
-        ),
-
-      is_active:
-        $("#courierActiveInput")
-          ?.value !== "false",
-
-      updated_at:
-        new Date().toISOString()
-    };
-
-    /*
-      عند إنشاء مندوب يدوي من الإدارة
-      لا نربطه بحساب Auth تلقائياً.
-      الربط التلقائي يتم عند اعتماد
-      طلب التسجيل.
-    */
-
-    if (!existingCourier) {
-      payload.status =
-        "unavailable";
-
-      payload.is_available =
-        false;
-
-      payload.is_on_shift =
-        false;
-    }
-
-    try {
-      let result;
-
-      if (existingCourier) {
-        result =
-          await sb
-            .from("couriers")
-            .update(payload)
-            .eq(
-              "id",
-              existingCourier.id
-            );
-      } else {
-        result =
-          await sb
-            .from("couriers")
-            .insert(payload);
-      }
-
-      if (result.error) {
-        throw result.error;
-      }
-
-      closeModal();
-
-      await loadCouriers();
-
-      renderPage();
-
-      toast(
-        existingCourier
-          ? "تم تحديث بيانات المندوب."
-          : "تمت إضافة المندوب."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر حفظ المندوب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  /* =========================================================
-     ADMIN DELETE / ARCHIVE COURIER
-     ========================================================= */
-
-  async function adminDeleteCourier(
-    courierId
-  ) {
-    if (!isAdmin()) {
-      toast(
-        "الحذف متاح للإدارة فقط.",
-        "error"
-      );
-      return;
-    }
-
-    const courier =
-      state.couriers.find(
-        item =>
-          String(item.id) ===
-          String(courierId)
-      );
-
-    if (!courier) return;
-
-    const activeOrders =
-      state.orders.filter(
-        order =>
-          String(
-            order.courier_id
-          ) ===
-            String(courierId) &&
-          ACTIVE_ORDER_STATUSES.includes(
-            order.status
-          )
-      );
-
-    if (activeOrders.length) {
-      toast(
-        `لا يمكن حذف أو أرشفة المندوب حالياً لأن لديه ${activeOrders.length} طلب نشط.`,
-        "warning"
-      );
-      return;
-    }
-
-    const confirmed =
-      await confirmAction(
-        `هل تريد حذف "${courier.name}"؟ إذا كان لديه طلبات أو سجلات مالية فسيتم أرشفته فقط حتى لا تضيع البيانات القديمة.`,
-        "تأكيد الحذف"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      const { data, error } =
-        await sb.rpc(
-          "wasalli_admin_delete_courier",
-          {
-            p_courier_id:
-              courierId
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      await Promise.all([
-        loadCouriers(),
-        loadOrders()
-      ]);
-
-      renderPage();
-
-      const action =
-        data?.action ||
-        data?.result ||
-        "";
-
-      toast(
-        String(action)
-          .toLowerCase()
-          .includes("archive")
-          ? "تمت أرشفة المندوب مع الاحتفاظ بسجلاته."
-          : "تم حذف المندوب."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر حذف المندوب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  function openArchivedCouriersModal() {
-    if (!isAdmin()) return;
-
-    const archived =
-      state.couriers.filter(
-        courier =>
-          courier.is_active === false ||
-          courier.archived_at
-      );
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>
-            أرشيف المندوبين
-          </h2>
-
-          <p>
-            المندوبون المؤرشفون لا يستقبلون
-            طلبات جديدة وتبقى سجلاتهم محفوظة.
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      ${
-        archived.length
-          ? `
-            <div class="simple-list">
-              ${archived
-                .map(
-                  courier => `
-                    <div
-                      class="simple-list-item"
-                    >
-                      <div>
-                        <strong>
-                          ${escapeHTML(
-                            courier.name
-                          )}
-                        </strong>
-
-                        <span>
-                          ${escapeHTML(
-                            courier.phone ||
-                            "—"
-                          )}
-                        </span>
-                      </div>
-
-                      <span
-                        class="wasalli-badge badge-warning"
-                      >
-                        مؤرشف
-                      </span>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-          : `
-            <div class="empty-state">
-              لا يوجد مندوبون مؤرشفون.
-            </div>
-          `
-      }
-    `);
-  }
-
-  /* =========================================================
-     MAP PAGE
+     MAP / PRICING
      ========================================================= */
 
   function renderMap() {
-    if (!isAdminOrOperations()) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
-
-    setTitle(
-      "خريطة العمليات",
-      "مواقع المندوبين والمحلات في كربلاء"
-    );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    const locatedCouriers =
-      state.couriers.filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at &&
-          courier.is_on_shift &&
-          courier.latitude !== null &&
-          courier.latitude !== undefined &&
-          courier.longitude !== null &&
-          courier.longitude !== undefined
-      );
-
-    const locatedShops =
-      state.shops.filter(
-        shop => {
-          const lat =
-            shop.latitude ??
-            shop.lat;
-
-          const lng =
-            shop.longitude ??
-            shop.lng;
-
-          return (
-            shop.is_active !== false &&
-            !shop.archived_at &&
-            lat !== null &&
-            lat !== undefined &&
-            lng !== null &&
-            lng !== undefined
-          );
-        }
-      );
-
-    content.innerHTML = `
-      <div class="stats-grid">
-        ${dashboardStat(
-          "🛵",
-          "مندوبون على الخريطة",
-          locatedCouriers.length
-        )}
-
-        ${dashboardStat(
-          "🏪",
-          "محلات محددة الموقع",
-          locatedShops.length
-        )}
-
-        ${dashboardStat(
-          "📦",
-          "طلبات نشطة",
-          state.orders.filter(
-            order =>
-              ACTIVE_ORDER_STATUSES.includes(
-                order.status
-              )
-          ).length
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>
-              خريطة وصلّي
-            </h2>
-
-            <p>
-              تظهر مواقع المندوبين أثناء الدوام فقط
-            </p>
-          </div>
-
-          <button
-            type="button"
-            class="btn btn-ghost"
-            id="refreshMapBtn"
-          >
-            تحديث
-          </button>
-        </div>
-
-        <div
-          id="operationsMap"
-          style="
-            width:100%;
-            height:min(68vh,650px);
-            min-height:430px;
-            border-radius:18px;
-            overflow:hidden;
-            background:#eee;
-          "
-        ></div>
-      </div>
-    `;
-
-    $("#refreshMapBtn")
-      ?.addEventListener(
-        "click",
-        async () => {
-          await Promise.all([
-            loadCouriers(),
-            loadShops(),
-            loadOrders()
-          ]);
-
-          renderMap();
-
-          toast(
-            "تم تحديث الخريطة."
-          );
-        }
-      );
-
-    setTimeout(
-      initializeOperationsMap,
-      50
-    );
+    if (!isAdminOrOperations()) return goDashboard();
+    setPageTitle("الخريطة", "مواقع الطلبات والجهات المسجلة");
+    const points = [];
+    state.orders.forEach(o => { const lat=orderCustomerLat(o), lng=orderCustomerLng(o); if(lat!=null&&lng!=null) points.push({type:"طلب",name:`${orderCode(o)} — ${customerName(o)}`,url:googleMapsUrl(lat,lng)}); else if(safeExternalUrl(o.customer_location_link)) points.push({type:"طلب",name:`${orderCode(o)} — ${customerName(o)}`,url:safeExternalUrl(o.customer_location_link)}); });
+    state.shops.forEach(s=>{const lat=s.lat??s.latitude,lng=s.lng??s.longitude;if(lat!=null&&lng!=null)points.push({type:"محل",name:s.name||"محل",url:googleMapsUrl(lat,lng)});});
+    qs("#content").innerHTML=`<div class="card"><div class="card-header"><div><h2>المواقع</h2><p>${points.length} موقع متوفر</p></div></div>${points.length?`<div class="map-grid">${points.slice(0,100).map(p=>`<div class="entity-card"><div class="entity-head"><div class="entity-icon">📍</div><div><h3>${escapeHTML(p.name)}</h3><p>${escapeHTML(p.type)}</p></div></div><a class="primary-btn link-btn" target="_blank" rel="noopener" href="${escapeHTML(p.url)}">فتح في الخرائط</a></div>`).join("")}</div>`:`<div class="empty">لا توجد إحداثيات أو روابط خرائط محفوظة حالياً.</div>`}</div>`;
   }
 
-  function initializeOperationsMap() {
-    const mapElement =
-      $("#operationsMap");
-
-    if (!mapElement) return;
-
-    if (!window.L) {
-      mapElement.innerHTML = `
-        <div
-          class="empty-state"
-          style="
-            height:100%;
-            display:grid;
-            place-items:center;
-          "
-        >
-          تعذر تحميل مكتبة الخريطة.
-        </div>
-      `;
-      return;
-    }
-
-    if (state.map) {
-      try {
-        state.map.remove();
-      } catch {
-        // تجاهل
-      }
-
-      state.map = null;
-      state.mapMarkers = [];
-    }
-
-    const defaultLat =
-      Number(
-        CONFIG.MAP?.LAT ||
-        32.6160
-      );
-
-    const defaultLng =
-      Number(
-        CONFIG.MAP?.LNG ||
-        44.0249
-      );
-
-    const defaultZoom =
-      Number(
-        CONFIG.MAP?.ZOOM ||
-        13
-      );
-
-    const map =
-      window.L.map(
-        mapElement
-      ).setView(
-        [
-          defaultLat,
-          defaultLng
-        ],
-        defaultZoom
-      );
-
-    state.map = map;
-
-    window.L
-      .tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        {
-          maxZoom: 19,
-          attribution:
-            "&copy; OpenStreetMap contributors"
-        }
-      )
-      .addTo(map);
-
-    const bounds = [];
-
-    state.shops
-      .filter(
-        shop =>
-          shop.is_active !== false &&
-          !shop.archived_at
-      )
-      .forEach(shop => {
-        const lat =
-          Number(
-            shop.latitude ??
-            shop.lat
-          );
-
-        const lng =
-          Number(
-            shop.longitude ??
-            shop.lng
-          );
-
-        if (
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lng)
-        ) {
-          return;
-        }
-
-        const marker =
-          window.L.marker(
-            [lat, lng]
-          )
-            .addTo(map)
-            .bindPopup(`
-              <div dir="rtl">
-                <strong>
-                  🏪 ${escapeHTML(
-                    shop.name ||
-                    "محل"
-                  )}
-                </strong>
-
-                <br>
-
-                ${escapeHTML(
-                  shop.area ||
-                  ""
-                )}
-
-                ${
-                  shop.phone
-                    ? `
-                      <br>
-                      ${escapeHTML(
-                        shop.phone
-                      )}
-                    `
-                    : ""
-                }
-              </div>
-            `);
-
-        state.mapMarkers.push(
-          marker
-        );
-
-        bounds.push(
-          [lat, lng]
-        );
-      });
-
-    state.couriers
-      .filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at &&
-          courier.is_on_shift
-      )
-      .forEach(courier => {
-        const lat =
-          Number(
-            courier.latitude
-          );
-
-        const lng =
-          Number(
-            courier.longitude
-          );
-
-        if (
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lng)
-        ) {
-          return;
-        }
-
-        const activeOrders =
-          state.orders.filter(
-            order =>
-              String(
-                order.courier_id
-              ) ===
-                String(
-                  courier.id
-                ) &&
-              ACTIVE_ORDER_STATUSES.includes(
-                order.status
-              )
-          ).length;
-
-        const available =
-          courier.is_available ||
-          courier.status ===
-            "available";
-
-        const marker =
-          window.L.marker(
-            [lat, lng]
-          )
-            .addTo(map)
-            .bindPopup(`
-              <div dir="rtl">
-                <strong>
-                  🛵 ${escapeHTML(
-                    courier.name ||
-                    "مندوب"
-                  )}
-                </strong>
-
-                <br>
-
-                الحالة:
-                ${
-                  available
-                    ? "متاح"
-                    : "مشغول / غير متاح"
-                }
-
-                <br>
-
-                الطلبات النشطة:
-                ${activeOrders}
-
-                ${
-                  courier.last_location_at
-                    ? `
-                      <br>
-                      آخر تحديث:
-                      ${escapeHTML(
-                        dateTime(
-                          courier.last_location_at
-                        )
-                      )}
-                    `
-                    : ""
-                }
-              </div>
-            `);
-
-        state.mapMarkers.push(
-          marker
-        );
-
-        bounds.push(
-          [lat, lng]
-        );
-      });
-
-    state.orders
-      .filter(
-        order =>
-          ACTIVE_ORDER_STATUSES.includes(
-            order.status
-          )
-      )
-      .forEach(order => {
-        const lat =
-          Number(
-            orderCustomerLat(
-              order
-            )
-          );
-
-        const lng =
-          Number(
-            orderCustomerLng(
-              order
-            )
-          );
-
-        if (
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lng)
-        ) {
-          return;
-        }
-
-        const marker =
-          window.L.circleMarker(
-            [lat, lng],
-            {
-              radius: 7
-            }
-          )
-            .addTo(map)
-            .bindPopup(`
-              <div dir="rtl">
-                <strong>
-                  📦 ${escapeHTML(
-                    orderCode(order)
-                  )}
-                </strong>
-
-                <br>
-
-                ${escapeHTML(
-                  statusLabel(
-                    order.status
-                  )
-                )}
-
-                <br>
-
-                ${escapeHTML(
-                  order.delivery_area ||
-                  orderAddress(
-                    order
-                  ) ||
-                  ""
-                )}
-              </div>
-            `);
-
-        state.mapMarkers.push(
-          marker
-        );
-
-        bounds.push(
-          [lat, lng]
-        );
-      });
-
-    if (bounds.length > 1) {
-      map.fitBounds(
-        bounds,
-        {
-          padding: [35, 35],
-          maxZoom: 15
-        }
-      );
-    } else if (
-      bounds.length === 1
-    ) {
-      map.setView(
-        bounds[0],
-        15
-      );
-    }
-
-    setTimeout(
-      () =>
-        map.invalidateSize(),
-      200
-    );
+  function renderPricing() {
+    if (!isAdminOrOperations()) return goDashboard();
+    setPageTitle("المناطق والتسعير", "إعداد فئات أجور التوصيل");
+    const editable=isAdmin();
+    qs("#content").innerHTML=`<div class="card"><div class="card-header"><div><h2>فئات التسعير</h2><p>يمكن اختيار الفئة عند إنشاء الطلب أو تحديد سعر يدوي.</p></div></div><div class="form-grid"><div class="field"><label>الفئة A</label><input id="priceA" type="number" min="0" value="${pricingA()}" ${editable?"":"disabled"}></div><div class="field"><label>الفئة B</label><input id="priceB" type="number" min="0" value="${pricingB()}" ${editable?"":"disabled"}></div><div class="field"><label>السعر الافتراضي</label><input id="defaultFeeSetting" type="number" min="0" value="${defaultFee()}" ${editable?"":"disabled"}></div><div class="field"><label>المدينة</label><input value="${escapeHTML(setting("city",DEFAULTS.city))}" disabled></div></div>${editable?`<div class="form-actions"><button id="savePricingBtn" class="primary-btn">حفظ التسعير</button></div>`:""}</div>`;
+    qs("#savePricingBtn")?.addEventListener("click",savePricing);
   }
+
+  async function savePricing(){const btn=qs("#savePricingBtn");setBusy(btn,true,"جاري الحفظ...");try{await saveSettingsRows([{key:"pricing_a",value:safeNumber(qs("#priceA")?.value)},{key:"pricing_b",value:safeNumber(qs("#priceB")?.value)},{key:"default_delivery_fee",value:safeNumber(qs("#defaultFeeSetting")?.value)}]);await loadSettings();renderPage();toast("تم حفظ التسعير.");}catch(e){toast("تعذر حفظ التسعير: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}}
 
   /* =========================================================
-     EXTRA STYLES FOR PART 3
-     ========================================================= */
-
-  function injectPart3Styles() {
-    if (
-      $("#wasalliPart3Styles")
-    ) {
-      return;
-    }
-
-    const style =
-      document.createElement(
-        "style"
-      );
-
-    style.id =
-      "wasalliPart3Styles";
-
-    style.textContent = `
-      .entity-card-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(
-            auto-fit,
-            minmax(260px,1fr)
-          );
-        gap: 13px;
-      }
-
-      .entity-card {
-        background: #fff;
-        border: 1px solid #eee;
-        border-radius: 20px;
-        padding: 16px;
-        box-shadow:
-          0 8px 24px
-          rgba(0,0,0,.05);
-      }
-
-      .entity-card-head {
-        display: flex;
-        align-items: center;
-        gap: 11px;
-        margin-bottom: 13px;
-      }
-
-      .entity-card-head > div:nth-child(2) {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .entity-card-head h3 {
-        margin: 0 0 4px;
-      }
-
-      .entity-card-head p {
-        margin: 0;
-        opacity: .65;
-        font-size: 13px;
-      }
-
-      .entity-avatar {
-        width: 46px;
-        height: 46px;
-        flex: 0 0 46px;
-        display: grid;
-        place-items: center;
-        border-radius: 15px;
-        background: #f4eefb;
-        font-size: 22px;
-      }
-
-      .entity-info {
-        display: grid;
-        grid-template-columns:
-          repeat(2,minmax(0,1fr));
-        gap: 8px;
-      }
-
-      .entity-info > div {
-        padding: 9px 10px;
-        border-radius: 12px;
-        background: #fafafa;
-      }
-
-      .entity-info small {
-        display: block;
-        opacity: .6;
-        margin-bottom: 3px;
-      }
-
-      .entity-info strong {
-        font-size: 14px;
-        word-break: break-word;
-      }
-
-      .entity-actions {
-        margin-top: 13px;
-      }
-
-      .order-filter-bar {
-        display: grid;
-        grid-template-columns:
-          minmax(0,2fr)
-          minmax(160px,1fr);
-        gap: 10px;
-        margin-bottom: 14px;
-      }
-
-      .order-filter-bar input,
-      .order-filter-bar select {
-        width: 100%;
-        min-height: 44px;
-        border: 1px solid #ddd;
-        border-radius: 12px;
-        padding: 0 12px;
-        background: #fff;
-      }
-
-      .order-detail-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(2,minmax(0,1fr));
-        gap: 10px;
-        margin-top: 15px;
-      }
-
-      .detail-box {
-        border: 1px solid #eee;
-        border-radius: 14px;
-        padding: 11px;
-      }
-
-      .detail-box.full {
-        grid-column: 1 / -1;
-      }
-
-      .detail-box small {
-        display: block;
-        opacity: .6;
-        margin-bottom: 5px;
-      }
-
-      .detail-box strong {
-        word-break: break-word;
-      }
-
-      .courier-overview-grid {
-        display: grid;
-        grid-template-columns:
-          repeat(
-            auto-fit,
-            minmax(220px,1fr)
-          );
-        gap: 10px;
-      }
-
-      .courier-overview-card {
-        border: 1px solid #eee;
-        border-radius: 16px;
-        padding: 13px;
-      }
-
-      .courier-overview-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .courier-overview-head small {
-        display: block;
-        margin-top: 4px;
-        opacity: .6;
-      }
-
-      .courier-overview-footer {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 11px;
-        font-size: 12px;
-        opacity: .8;
-      }
-
-      @media (max-width: 700px) {
-        .entity-card-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .order-filter-bar {
-          grid-template-columns: 1fr;
-        }
-
-        .order-detail-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .detail-box.full {
-          grid-column: auto;
-        }
-      }
-    `;
-
-    document.head.appendChild(
-      style
-    );
-  }
-
-  injectPart3Styles();
-   /* =========================================================
      ACCOUNTS / FINANCE
      ========================================================= */
 
-  function buildCourierBalances() {
-    return state.couriers
-      .filter(
-        courier =>
-          courier.is_active !== false &&
-          !courier.archived_at
-      )
-      .map(courier => {
-        const courierOrders =
-          state.orders.filter(
-            order =>
-              String(order.courier_id) ===
-              String(courier.id)
-          );
-
-        const closedOrders =
-          courierOrders.filter(order =>
-            ["delivered", "returned"].includes(
-              order.status
-            )
-          );
-
-        const cashCollected =
-          closedOrders.reduce(
-            (sum, order) =>
-              sum +
-              safeNumber(
-                order.amount_to_collect ??
-                order.courier_collection_amount
-              ),
-            0
-          );
-
-        const payments =
-          state.courierPayments
-            .filter(
-              payment =>
-                String(payment.courier_id) ===
-                String(courier.id)
-            )
-            .reduce(
-              (sum, payment) =>
-                sum +
-                safeNumber(payment.amount),
-              0
-            );
-
-        return {
-          courier,
-          cashCollected,
-          payments,
-          balance: Math.max(
-            0,
-            cashCollected - payments
-          )
-        };
-      });
-  }
-
   function renderAccounts() {
-    if (isCourier()) {
-      renderCourierAccount();
-      return;
-    }
-
-    if (!isFinanceUser()) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
-
-    setTitle(
-      "الحسابات",
-      "تسويات المندوبين والمصاريف والسجل المالي"
-    );
-
-    const balances =
-      buildCourierBalances();
-
-    const totalLiability =
-      balances.reduce(
-        (sum, item) =>
-          sum + item.balance,
-        0
-      );
-
-    const totalPayments =
-      state.courierPayments.reduce(
-        (sum, payment) =>
-          sum +
-          safeNumber(payment.amount),
-        0
-      );
-
-    const totalExpenses =
-      state.expenses
-        .filter(
-          expense =>
-            !expense.reversed_at
-        )
-        .reduce(
-          (sum, expense) =>
-            sum +
-            safeNumber(expense.amount),
-          0
-        );
-
-    const companyIncome =
-      state.financialLedger
-        .filter(
-          entry =>
-            entry.entry_type ===
-              "company_delivery_share" &&
-            !entry.is_reversal
-        )
-        .reduce(
-          (sum, entry) =>
-            sum +
-            safeNumber(entry.amount),
-          0
-        );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="financial-summary-grid">
-        ${financeSummaryBox(
-          "عهدة المندوبين",
-          totalLiability,
-          "المبلغ المتبقي بذمة المندوبين"
-        )}
-
-        ${financeSummaryBox(
-          "المبالغ المستلمة",
-          totalPayments,
-          "إجمالي التسويات المسجلة"
-        )}
-
-        ${financeSummaryBox(
-          "حصة وصلّي",
-          companyIncome,
-          "حصة الشركة من أجور التوصيل"
-        )}
-
-        ${financeSummaryBox(
-          "المصاريف",
-          totalExpenses,
-          "المصاريف الفعالة"
-        )}
-
-        ${financeSummaryBox(
-          "الصافي",
-          companyIncome - totalExpenses,
-          "حصة الشركة بعد المصاريف"
-        )}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <div>
-            <h2>حسابات المندوبين</h2>
-            <p>
-              تسجيل التسديدات الكاملة أو الجزئية
-            </p>
-          </div>
-        </div>
-
-        ${
-          balances.length
-            ? `
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>المندوب</th>
-                      <th>الكاش المحصل</th>
-                      <th>المسدد</th>
-                      <th>المتبقي</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    ${balances
-                      .map(
-                        item => `
-                          <tr>
-                            <td>
-                              <strong>
-                                ${escapeHTML(
-                                  item.courier.name ||
-                                  "مندوب"
-                                )}
-                              </strong>
-                            </td>
-
-                            <td>
-                              ${money(
-                                item.cashCollected
-                              )}
-                            </td>
-
-                            <td>
-                              ${money(
-                                item.payments
-                              )}
-                            </td>
-
-                            <td>
-                              <strong>
-                                ${money(
-                                  item.balance
-                                )}
-                              </strong>
-                            </td>
-
-                            <td>
-                              <button
-                                type="button"
-                                class="btn btn-primary btn-sm"
-                                data-courier-payment="${item.courier.id}"
-                              >
-                                استلام مبلغ
-                              </button>
-                            </td>
-                          </tr>
-                        `
-                      )
-                      .join("")}
-                  </tbody>
-                </table>
-              </div>
-            `
-            : `
-              <div class="empty-state">
-                لا توجد حسابات مندوبين.
-              </div>
-            `
-        }
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <div>
-            <h2>المصاريف</h2>
-            <p>
-              لا يتم حذف المصروف نهائياً،
-              وإنما يعكس عند التصحيح.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            class="btn btn-primary"
-            id="addExpenseBtn"
-          >
-            + تسجيل مصروف
-          </button>
-        </div>
-
-        ${expensesTable()}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <div>
-            <h2>آخر التسويات</h2>
-          </div>
-        </div>
-
-        ${courierPaymentsTable()}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <div>
-            <h2>السجل المالي</h2>
-          </div>
-        </div>
-
-        ${financeLedgerTable(
-          state.financialLedger.slice(
-            0,
-            50
-          )
-        )}
-      </div>
-    `;
-
-    $$("[data-courier-payment]")
-      .forEach(button => {
-        button.onclick = () =>
-          openCourierPaymentModal(
-            button.dataset
-              .courierPayment
-          );
-      });
-
-    $("#addExpenseBtn")
-      ?.addEventListener(
-        "click",
-        openExpenseModal
-      );
-
-    $$("[data-reverse-expense]")
-      .forEach(button => {
-        button.onclick = () =>
-          reverseExpense(
-            button.dataset
-              .reverseExpense
-          );
-      });
+    if (isCourier()) return renderCourierAccount();
+    if (isShop()) return renderShopAccount();
+    if (!isFinanceUser()) return goDashboard();
+    setPageTitle("الحسابات", "السجل المالي والتسويات والمصاريف");
+    const ledgerTotal=state.ledger.reduce((s,x)=>s+safeNumber(x.amount),0);const expenseTotal=state.expenses.filter(x=>!x.reversed_at).reduce((s,x)=>s+safeNumber(x.amount),0);const paymentTotal=state.payments.reduce((s,x)=>s+safeNumber(x.amount),0);
+    qs("#content").innerHTML=`<div class="financial-grid">${stat("📒","صافي السجل",money(ledgerTotal))}${stat("🧾","المصاريف",money(expenseTotal))}${stat("🛵","تسديدات المندوبين",money(paymentTotal))}</div><div class="card" style="margin-top:15px"><div class="card-header"><h2>السجل المالي</h2>${isAdmin()?`<div class="page-actions"><button id="addExpenseBtn" class="primary-btn">+ مصروف</button><button id="addPaymentBtn" class="ghost-btn">+ تسديد مندوب</button></div>`:""}</div>${ledgerTable(state.ledger)}</div><div class="card"><div class="card-header"><h2>المصاريف</h2></div>${expensesTable()}</div><div class="card"><div class="card-header"><h2>تسديدات المندوبين</h2></div>${paymentsTable()}</div>`;
+    qs("#addExpenseBtn")?.addEventListener("click",openExpenseModal);qs("#addPaymentBtn")?.addEventListener("click",openPaymentModal);
   }
 
-  function renderCourierAccount() {
-    setTitle(
-      "حسابي",
-      "أرباحك وعهدة الكاش"
-    );
+  function ledgerTable(rows){if(!rows.length)return `<div class="empty">لا توجد حركات مالية.</div>`;return `<div class="table-wrap"><table class="data-table"><thead><tr><th>النوع</th><th>الوصف</th><th>المبلغ</th><th>التاريخ</th></tr></thead><tbody>${rows.slice(0,120).map(x=>`<tr><td>${escapeHTML(x.entry_type||x.type||"حركة")}</td><td>${escapeHTML(x.description||x.notes||"—")}</td><td><strong>${money(x.amount)}</strong></td><td>${dateTime(x.created_at)}</td></tr>`).join("")}</tbody></table></div>`}
+  function expensesTable(){if(!state.expenses.length)return `<div class="empty">لا توجد مصاريف.</div>`;return `<div class="table-wrap"><table class="data-table"><thead><tr><th>الفئة</th><th>الوصف</th><th>المبلغ</th><th>التاريخ</th></tr></thead><tbody>${state.expenses.slice(0,100).map(x=>`<tr><td>${escapeHTML(x.category||"أخرى")}</td><td>${escapeHTML(x.description||"—")}</td><td>${money(x.amount)}</td><td>${dateTime(x.created_at)}</td></tr>`).join("")}</tbody></table></div>`}
+  function paymentsTable(){if(!state.payments.length)return `<div class="empty">لا توجد تسديدات.</div>`;return `<div class="table-wrap"><table class="data-table"><thead><tr><th>المندوب</th><th>المبلغ</th><th>التاريخ</th><th>ملاحظات</th></tr></thead><tbody>${state.payments.slice(0,100).map(x=>`<tr><td>${escapeHTML(state.couriers.find(c=>String(c.id)===String(x.courier_id))?.name||"—")}</td><td>${money(x.amount)}</td><td>${dateTime(x.created_at)}</td><td>${escapeHTML(x.notes||"—")}</td></tr>`).join("")}</tbody></table></div>`}
 
-    const courier =
-      state.currentCourier;
+  function openExpenseModal(){openModal(`${modalHeader("تسجيل مصروف")}<div class="form-grid"><div class="field"><label>الفئة</label><input id="expenseCategory" placeholder="وقود / صيانة / أخرى"></div><div class="field"><label>المبلغ</label><input id="expenseAmount" type="number" min="0"></div><div class="field full"><label>الوصف</label><textarea id="expenseDesc"></textarea></div></div><div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="saveExpenseBtn" class="primary-btn">حفظ</button></div>`);qs("#saveExpenseBtn")?.addEventListener("click",saveExpense)}
+  async function saveExpense(){const btn=qs("#saveExpenseBtn"),amount=safeNumber(qs("#expenseAmount")?.value),category=qs("#expenseCategory")?.value?.trim()||"أخرى";if(amount<=0)return toast("اكتب مبلغاً صحيحاً.","warning");setBusy(btn,true,"جاري الحفظ...");try{const r=await resilientInsert("wasalli_expenses",{category,description:qs("#expenseDesc")?.value?.trim()||null,amount,created_by:state.session.user.id,created_at:new Date().toISOString()},false);if(r.error)throw r.error;closeModal();await loadFinance();renderPage();toast("تم تسجيل المصروف.");}catch(e){toast("تعذر تسجيل المصروف: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}}
 
-    const content = $("#content");
+  function openPaymentModal(){openModal(`${modalHeader("تسجيل تسديد مندوب")}<div class="form-grid"><div class="field"><label>المندوب</label><select id="paymentCourier"><option value="">اختر المندوب</option>${courierOptions()}</select></div><div class="field"><label>المبلغ</label><input id="paymentAmount" type="number" min="0"></div><div class="field full"><label>ملاحظات</label><textarea id="paymentNotes"></textarea></div></div><div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="savePaymentBtn" class="primary-btn">حفظ</button></div>`);qs("#savePaymentBtn")?.addEventListener("click",savePayment)}
+  async function savePayment(){const btn=qs("#savePaymentBtn"),courier_id=qs("#paymentCourier")?.value||null,amount=safeNumber(qs("#paymentAmount")?.value);if(!courier_id||amount<=0)return toast("اختر المندوب واكتب مبلغاً صحيحاً.","warning");setBusy(btn,true,"جاري الحفظ...");try{const r=await resilientInsert("wasalli_courier_payments",{courier_id,amount,notes:qs("#paymentNotes")?.value?.trim()||null,created_by:state.session.user.id,created_at:new Date().toISOString()},false);if(r.error)throw r.error;closeModal();await loadFinance();renderPage();toast("تم تسجيل التسديد.");}catch(e){toast("تعذر تسجيل التسديد: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}}
 
-    if (!content) return;
-
-    if (!courier) {
-      content.innerHTML = `
-        <div class="card">
-          <div class="empty-state">
-            حسابك غير مربوط بسجل مندوب.
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    const myOrders =
-      state.orders.filter(
-        order =>
-          String(order.courier_id) ===
-          String(courier.id)
-      );
-
-    const closed =
-      myOrders.filter(order =>
-        ["delivered", "returned"].includes(
-          order.status
-        )
-      );
-
-    const deliveryFees =
-      closed.reduce(
-        (sum, order) =>
-          sum +
-          orderDeliveryFee(order),
-        0
-      );
-
-    const earnings =
-      deliveryFees *
-      (COURIER_PERCENT / 100);
-
-    const collected =
-      closed.reduce(
-        (sum, order) =>
-          sum +
-          safeNumber(
-            order.amount_to_collect ??
-            order.courier_collection_amount
-          ),
-        0
-      );
-
-    const payments =
-      state.courierPayments
-        .filter(
-          payment =>
-            String(payment.courier_id) ===
-            String(courier.id)
-        )
-        .reduce(
-          (sum, payment) =>
-            sum +
-            safeNumber(payment.amount),
-          0
-        );
-
-    const balance =
-      Math.max(
-        0,
-        collected - payments
-      );
-
-    content.innerHTML = `
-      <div class="financial-summary-grid">
-        ${financeSummaryBox(
-          "أرباحي",
-          earnings,
-          `${COURIER_PERCENT}% من أجور التوصيل`
-        )}
-
-        ${financeSummaryBox(
-          "الكاش المحصل",
-          collected,
-          "إجمالي المبالغ المستلمة"
-        )}
-
-        ${financeSummaryBox(
-          "المسدد للشركة",
-          payments,
-          "المبالغ المسلمة"
-        )}
-
-        ${financeSummaryBox(
-          "العهدة الحالية",
-          balance,
-          "المبلغ المتبقي بذمتك"
-        )}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <h2>طلباتي المكتملة</h2>
-        </div>
-
-        ${
-          closed.length
-            ? `
-              <div class="simple-list">
-                ${closed
-                  .slice(0, 30)
-                  .map(
-                    order => `
-                      <div
-                        class="simple-list-item"
-                      >
-                        <div>
-                          <strong>
-                            ${escapeHTML(
-                              orderCode(order)
-                            )}
-                          </strong>
-
-                          <span>
-                            ${dateTime(
-                              order.delivered_at ||
-                              order.returned_at ||
-                              order.updated_at
-                            )}
-                          </span>
-                        </div>
-
-                        <div>
-                          ${statusBadge(
-                            order.status
-                          )}
-                        </div>
-
-                        <strong>
-                          ${money(
-                            orderDeliveryFee(
-                              order
-                            ) *
-                            (
-                              COURIER_PERCENT /
-                              100
-                            )
-                          )}
-                        </strong>
-                      </div>
-                    `
-                  )
-                  .join("")}
-              </div>
-            `
-            : `
-              <div class="empty-state">
-                لا توجد طلبات مكتملة.
-              </div>
-            `
-        }
-      </div>
-    `;
-  }
-
-  function openCourierPaymentModal(
-    courierId
-  ) {
-    const courier =
-      state.couriers.find(
-        item =>
-          String(item.id) ===
-          String(courierId)
-      );
-
-    if (!courier) return;
-
-    const balanceItem =
-      buildCourierBalances().find(
-        item =>
-          String(
-            item.courier.id
-          ) ===
-          String(courierId)
-      );
-
-    const balance =
-      balanceItem?.balance || 0;
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>استلام مبلغ</h2>
-          <p>
-            ${escapeHTML(
-              courier.name
-            )}
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="card">
-        <small>
-          العهدة الحالية
-        </small>
-
-        <strong
-          style="
-            display:block;
-            font-size:24px;
-            margin-top:5px
-          "
-        >
-          ${money(balance)}
-        </strong>
-      </div>
-
-      <div
-        class="form-grid"
-        style="margin-top:14px"
-      >
-        <div class="field">
-          <label>المبلغ المستلم</label>
-
-          <input
-            id="courierPaymentAmount"
-            type="number"
-            min="1"
-            step="250"
-            value="${balance || ""}"
-          />
-        </div>
-
-        <div class="field">
-          <label>ملاحظات</label>
-
-          <input
-            id="courierPaymentNote"
-            type="text"
-            placeholder="اختياري"
-          />
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          class="btn btn-ghost"
-          data-close
-        >
-          إلغاء
-        </button>
-
-        <button
-          class="btn btn-primary"
-          id="saveCourierPaymentBtn"
-        >
-          تسجيل الاستلام
-        </button>
-      </div>
-    `);
-
-    $("#saveCourierPaymentBtn")
-      ?.addEventListener(
-        "click",
-        () =>
-          receiveCourierPayment(
-            courierId
-          )
-      );
-  }
-
-  async function receiveCourierPayment(
-    courierId
-  ) {
-    const amount =
-      safeNumber(
-        $("#courierPaymentAmount")
-          ?.value
-      );
-
-    const note =
-      $("#courierPaymentNote")
-        ?.value?.trim() ||
-      null;
-
-    if (amount <= 0) {
-      toast(
-        "اكتب مبلغاً صحيحاً.",
-        "warning"
-      );
-      return;
-    }
-
-    try {
-      const { data, error } =
-        await sb.rpc(
-          "wasalli_receive_courier_payment",
-          {
-            p_courier_id:
-              courierId,
-            p_amount:
-              amount,
-            p_notes:
-              note
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      closeModal();
-
-      await loadAll(false);
-
-      state.page = "accounts";
-      renderPage();
-
-      toast(
-        "تم تسجيل استلام المبلغ."
-      );
-
-      printCourierPaymentReceipt(
-        courierId,
-        amount,
-        note,
-        data
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر تسجيل التسوية: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  function printCourierPaymentReceipt(
-    courierId,
-    amount,
-    note,
-    result
-  ) {
-    const courier =
-      state.couriers.find(
-        item =>
-          String(item.id) ===
-          String(courierId)
-      );
-
-    const transaction =
-      result?.id ||
-      result?.payment_id ||
-      Date.now();
-
-    const receipt = `
-      <html dir="rtl">
-        <head>
-          <meta charset="UTF-8">
-          <title>
-            وصل استلام - وصلّي
-          </title>
-
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 30px;
-              direction: rtl;
-            }
-
-            .receipt {
-              max-width: 520px;
-              margin: auto;
-              border: 2px solid #552583;
-              border-radius: 18px;
-              padding: 24px;
-            }
-
-            h1 {
-              color: #552583;
-              margin-top: 0;
-            }
-
-            .row {
-              display: flex;
-              justify-content: space-between;
-              border-bottom: 1px dashed #ccc;
-              padding: 10px 0;
-              gap: 20px;
-            }
-
-            .amount {
-              font-size: 25px;
-              font-weight: 800;
-              color: #552583;
-            }
-
-            small {
-              color: #666;
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="receipt">
-            <h1>وصلّي</h1>
-            <h2>وصل استلام مبلغ</h2>
-
-            <div class="row">
-              <span>المندوب</span>
-              <strong>
-                ${escapeHTML(
-                  courier?.name ||
-                  "—"
-                )}
-              </strong>
-            </div>
-
-            <div class="row">
-              <span>المبلغ</span>
-              <strong class="amount">
-                ${money(amount)}
-              </strong>
-            </div>
-
-            <div class="row">
-              <span>التاريخ</span>
-              <strong>
-                ${dateTime(
-                  new Date()
-                    .toISOString()
-                )}
-              </strong>
-            </div>
-
-            <div class="row">
-              <span>
-                رقم العملية
-              </span>
-
-              <strong>
-                ${escapeHTML(
-                  transaction
-                )}
-              </strong>
-            </div>
-
-            ${
-              note
-                ? `
-                  <div class="row">
-                    <span>
-                      ملاحظات
-                    </span>
-
-                    <strong>
-                      ${escapeHTML(
-                        note
-                      )}
-                    </strong>
-                  </div>
-                `
-                : ""
-            }
-
-            <p>
-              <small>
-                وصل إلكتروني صادر من نظام وصلّي.
-              </small>
-            </p>
-          </div>
-
-          <script>
-            window.onload = () => {
-              window.print();
-            };
-          <\/script>
-        </body>
-      </html>
-    `;
-
-    const printWindow =
-      window.open(
-        "",
-        "_blank",
-        "width=700,height=800"
-      );
-
-    if (!printWindow) {
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(
-      receipt
-    );
-    printWindow.document.close();
-  }
-
-  function courierPaymentsTable() {
-    if (
-      !state.courierPayments.length
-    ) {
-      return `
-        <div class="empty-state">
-          لا توجد تسويات مسجلة.
-        </div>
-      `;
-    }
-
-    return `
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>المندوب</th>
-              <th>المبلغ</th>
-              <th>التاريخ</th>
-              <th>ملاحظات</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            ${state.courierPayments
-              .slice(0, 50)
-              .map(payment => {
-                const courier =
-                  state.couriers.find(
-                    item =>
-                      String(item.id) ===
-                      String(
-                        payment.courier_id
-                      )
-                  );
-
-                return `
-                  <tr>
-                    <td>
-                      ${escapeHTML(
-                        courier?.name ||
-                        "—"
-                      )}
-                    </td>
-
-                    <td>
-                      <strong>
-                        ${money(
-                          payment.amount
-                        )}
-                      </strong>
-                    </td>
-
-                    <td>
-                      ${dateTime(
-                        payment.created_at
-                      )}
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        payment.notes ||
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                `;
-              })
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function expensesTable() {
-    if (!state.expenses.length) {
-      return `
-        <div class="empty-state">
-          لا توجد مصاريف مسجلة.
-        </div>
-      `;
-    }
-
-    return `
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>الفئة</th>
-              <th>الوصف</th>
-              <th>المبلغ</th>
-              <th>التاريخ</th>
-              <th>الحالة</th>
-              <th></th>
-            </tr>
-          </thead>
-
-          <tbody>
-            ${state.expenses
-              .slice(0, 50)
-              .map(
-                expense => `
-                  <tr>
-                    <td>
-                      ${escapeHTML(
-                        expense.category ||
-                        "أخرى"
-                      )}
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        expense.description ||
-                        "—"
-                      )}
-                    </td>
-
-                    <td>
-                      <strong>
-                        ${money(
-                          expense.amount
-                        )}
-                      </strong>
-                    </td>
-
-                    <td>
-                      ${dateTime(
-                        expense.created_at
-                      )}
-                    </td>
-
-                    <td>
-                      ${
-                        expense.reversed_at
-                          ? `
-                            <span
-                              class="wasalli-badge badge-warning"
-                            >
-                              معكوس
-                            </span>
-                          `
-                          : `
-                            <span
-                              class="wasalli-badge badge-success"
-                            >
-                              فعال
-                            </span>
-                          `
-                      }
-                    </td>
-
-                    <td>
-                      ${
-                        !expense.reversed_at
-                          ? `
-                            <button
-                              class="btn btn-ghost btn-sm"
-                              data-reverse-expense="${expense.id}"
-                            >
-                              عكس
-                            </button>
-                          `
-                          : ""
-                      }
-                    </td>
-                  </tr>
-                `
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function openExpenseModal() {
-    if (!isFinanceUser()) return;
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>تسجيل مصروف</h2>
-          <p>
-            المصروف يبقى محفوظاً في السجل.
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="form-grid">
-        <div class="field">
-          <label>الفئة</label>
-
-          <select id="expenseCategory">
-            <option value="fuel">
-              وقود
-            </option>
-
-            <option value="maintenance">
-              صيانة
-            </option>
-
-            <option value="purchases">
-              مشتريات
-            </option>
-
-            <option value="printing">
-              طباعة
-            </option>
-
-            <option value="communications">
-              اتصالات
-            </option>
-
-            <option value="other">
-              أخرى
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>المبلغ</label>
-
-          <input
-            id="expenseAmount"
-            type="number"
-            min="1"
-            step="250"
-          />
-        </div>
-
-        <div class="field full">
-          <label>الوصف</label>
-
-          <textarea
-            id="expenseDescription"
-            rows="3"
-            placeholder="تفاصيل المصروف..."
-          ></textarea>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          class="btn btn-ghost"
-          data-close
-        >
-          إلغاء
-        </button>
-
-        <button
-          class="btn btn-primary"
-          id="saveExpenseBtn"
-        >
-          حفظ المصروف
-        </button>
-      </div>
-    `);
-
-    $("#saveExpenseBtn")
-      ?.addEventListener(
-        "click",
-        saveExpense
-      );
-  }
-
-  async function saveExpense() {
-    if (!isFinanceUser()) return;
-
-    const amount =
-      safeNumber(
-        $("#expenseAmount")
-          ?.value
-      );
-
-    const category =
-      $("#expenseCategory")
-        ?.value ||
-      "other";
-
-    const description =
-      $("#expenseDescription")
-        ?.value?.trim() ||
-      "";
-
-    if (amount <= 0) {
-      toast(
-        "اكتب مبلغاً صحيحاً.",
-        "warning"
-      );
-      return;
-    }
-
-    if (!description) {
-      toast(
-        "اكتب وصف المصروف.",
-        "warning"
-      );
-      return;
-    }
-
-    try {
-      const { error } =
-        await sb
-          .from(
-            "wasalli_expenses"
-          )
-          .insert({
-            amount,
-            category,
-            description,
-            created_by:
-              state.session.user.id
-          });
-
-      if (error) {
-        throw error;
-      }
-
-      closeModal();
-
-      await loadAll(false);
-
-      state.page = "accounts";
-      renderPage();
-
-      toast(
-        "تم تسجيل المصروف."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر تسجيل المصروف: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  async function reverseExpense(
-    expenseId
-  ) {
-    if (!isFinanceUser()) return;
-
-    const reason =
-      window.prompt(
-        "اكتب سبب عكس المصروف:"
-      );
-
-    if (!reason?.trim()) {
-      return;
-    }
-
-    const confirmed =
-      await confirmAction(
-        "سيبقى المصروف الأصلي محفوظاً ويُعلّم كمعكوس. متابعة؟",
-        "عكس المصروف"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      const { error } =
-        await sb
-          .from(
-            "wasalli_expenses"
-          )
-          .update({
-            reversed_at:
-              new Date()
-                .toISOString(),
-            reversed_by:
-              state.session.user.id,
-            reversal_reason:
-              reason.trim()
-          })
-          .eq(
-            "id",
-            expenseId
-          );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadAll(false);
-
-      state.page = "accounts";
-      renderPage();
-
-      toast(
-        "تم عكس المصروف."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر عكس المصروف: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  function financeLedgerTable(
-    entries
-  ) {
-    if (!entries?.length) {
-      return `
-        <div class="empty-state">
-          لا توجد حركات مالية.
-        </div>
-      `;
-    }
-
-    return `
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>النوع</th>
-              <th>المبلغ</th>
-              <th>الوصف</th>
-              <th>التاريخ</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            ${entries
-              .map(
-                entry => `
-                  <tr>
-                    <td>
-                      ${escapeHTML(
-                        financeEntryLabel(
-                          entry.entry_type
-                        )
-                      )}
-                    </td>
-
-                    <td>
-                      <strong>
-                        ${money(
-                          entry.amount
-                        )}
-                      </strong>
-                    </td>
-
-                    <td>
-                      ${escapeHTML(
-                        entry.description ||
-                        "—"
-                      )}
-                    </td>
-
-                    <td>
-                      ${dateTime(
-                        entry.created_at
-                      )}
-                    </td>
-                  </tr>
-                `
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  function financeEntryLabel(type) {
-    const labels = {
-      courier_delivery_share:
-        "حصة المندوب",
-      company_delivery_share:
-        "حصة وصلّي",
-      courier_payment:
-        "تسديد مندوب",
-      expense:
-        "مصروف",
-      reversal:
-        "عكس مالي"
-    };
-
-    return (
-      labels[type] ||
-      type ||
-      "حركة مالية"
-    );
-  }
+  function renderCourierAccount(){setPageTitle("حسابي","ملخص أرباح المندوب");const orders=courierAssignedOrders();const done=orders.filter(o=>["delivered","returned"].includes(o.status));const total=done.reduce((s,o)=>s+orderFee(o)*courierPercent()/100,0);const today=done.filter(o=>isToday(o.delivered_at||o.returned_at||o.updated_at)).reduce((s,o)=>s+orderFee(o)*courierPercent()/100,0);const cash=done.reduce((s,o)=>s+amountToCollect(o),0);qs("#content").innerHTML=`<div class="stats-grid">${stat("💰","إجمالي الحصة",money(total),`${courierPercent()}% من أجور التوصيل`)}${stat("📅","حصة اليوم",money(today))}${stat("💵","الكاش بالعهدة",money(cash))}${stat("✅","طلبات مكتملة",done.length)}</div><div class="card"><div class="card-header"><h2>الطلبات المكتملة</h2></div>${ordersTable(done.slice(0,50))}${ordersMobile(done.slice(0,50),true)}</div>`;bindOrderOpenButtons()}
+  function renderShopAccount(){setPageTitle("الحساب","ملخص طلبات المحل");const delivered=state.orders.filter(o=>o.status==="delivered"),returned=state.orders.filter(o=>o.status==="returned");const fees=[...delivered,...returned].reduce((s,o)=>s+orderFee(o),0);qs("#content").innerHTML=`<div class="stats-grid">${stat("📦","الطلبات",state.orders.length)}${stat("✅","تم التسليم",delivered.length)}${stat("↩","راجع",returned.length)}${stat("💰","أجور التوصيل",money(fees))}</div><div class="card">${ordersTable(state.orders.slice(0,50))}${ordersMobile(state.orders.slice(0,50))}</div>`;bindOrderOpenButtons()}
 
   /* =========================================================
      REPORTS
      ========================================================= */
 
-  function renderReports() {
-    if (
-      !isAdmin() &&
-      !isFinanceUser()
-    ) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
+  function renderReports(){setPageTitle("التقارير","ملخص عمليات وصلّي");const delivered=state.orders.filter(o=>o.status==="delivered"),returned=state.orders.filter(o=>o.status==="returned"),cancelled=state.orders.filter(o=>o.status==="cancelled");const fees=[...delivered,...returned].reduce((s,o)=>s+orderFee(o),0);const courierShare=fees*courierPercent()/100,companyShare=fees*companyPercent()/100;qs("#content").innerHTML=`<div class="stats-grid">${stat("📦","إجمالي الطلبات",state.orders.length)}${stat("✅","تم التسليم",delivered.length)}${stat("↩","راجع",returned.length)}${stat("❌","ملغي",cancelled.length)}${stat("💰","أجور التوصيل",money(fees))}${isFinanceUser()?stat("🛵","حصص المندوبين",money(courierShare)):""}${isFinanceUser()?stat("🏢","حصة وصلّي",money(companyShare)):""}</div><div class="card"><div class="card-header"><div><h2>تصدير التقرير</h2><p>تنزيل ملخص الطلبات بصيغة CSV</p></div><button id="exportReportBtn" class="primary-btn">تنزيل CSV</button></div></div>`;qs("#exportReportBtn")?.addEventListener("click",exportOrdersCsv)}
 
-    setTitle(
-      "التقارير",
-      "ملخص عمليات وصلّي"
-    );
-
-    const delivered =
-      state.orders.filter(
-        order =>
-          order.status === "delivered"
-      );
-
-    const returned =
-      state.orders.filter(
-        order =>
-          order.status === "returned"
-      );
-
-    const cancelled =
-      state.orders.filter(
-        order =>
-          order.status === "cancelled"
-      );
-
-    const totalFees =
-      [...delivered, ...returned]
-        .reduce(
-          (sum, order) =>
-            sum +
-            orderDeliveryFee(order),
-          0
-        );
-
-    const courierShare =
-      totalFees *
-      (COURIER_PERCENT / 100);
-
-    const companyShare =
-      totalFees *
-      (COMPANY_PERCENT / 100);
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="financial-summary-grid">
-        ${financeSummaryBox(
-          "إجمالي الطلبات",
-          state.orders.length,
-          "كل الطلبات المسجلة"
-        )}
-
-        ${financeSummaryBox(
-          "تم التسليم",
-          delivered.length,
-          "طلبات مكتملة"
-        )}
-
-        ${financeSummaryBox(
-          "راجع",
-          returned.length,
-          "طلبات راجعة"
-        )}
-
-        ${financeSummaryBox(
-          "ملغي",
-          cancelled.length,
-          "طلبات ملغاة"
-        )}
-
-        ${financeSummaryBox(
-          "أجور التوصيل",
-          totalFees,
-          "التسليم + الراجع"
-        )}
-
-        ${financeSummaryBox(
-          "حصص المندوبين",
-          courierShare,
-          `${COURIER_PERCENT}%`
-        )}
-
-        ${financeSummaryBox(
-          "حصة وصلّي",
-          companyShare,
-          `${COMPANY_PERCENT}%`
-        )}
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <h2>حالات الطلبات</h2>
-        </div>
-
-        <div class="simple-list">
-          ${[
-            "new",
-            "accepted",
-            "picked_up",
-            "on_the_way",
-            "delivered",
-            "returned",
-            "cancelled"
-          ]
-            .map(status => {
-              const count =
-                state.orders.filter(
-                  order =>
-                    order.status ===
-                    status
-                ).length;
-
-              return `
-                <div
-                  class="simple-list-item"
-                >
-                  <span>
-                    ${statusBadge(
-                      status
-                    )}
-                  </span>
-
-                  <strong>
-                    ${count}
-                  </strong>
-                </div>
-              `;
-            })
-            .join("")}
-        </div>
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <h2>
-            أداء المندوبين
-          </h2>
-        </div>
-
-        ${
-          state.couriers.length
-            ? `
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>المندوب</th>
-                      <th>تسليم</th>
-                      <th>راجع</th>
-                      <th>أجور التوصيل</th>
-                      <th>حصة المندوب</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    ${state.couriers
-                      .filter(
-                        courier =>
-                          !courier.archived_at
-                      )
-                      .map(courier => {
-                        const orders =
-                          state.orders.filter(
-                            order =>
-                              String(
-                                order.courier_id
-                              ) ===
-                              String(
-                                courier.id
-                              )
-                          );
-
-                        const done =
-                          orders.filter(
-                            order =>
-                              order.status ===
-                              "delivered"
-                          );
-
-                        const back =
-                          orders.filter(
-                            order =>
-                              order.status ===
-                              "returned"
-                          );
-
-                        const fees =
-                          [
-                            ...done,
-                            ...back
-                          ].reduce(
-                            (sum, order) =>
-                              sum +
-                              orderDeliveryFee(
-                                order
-                              ),
-                            0
-                          );
-
-                        return `
-                          <tr>
-                            <td>
-                              ${escapeHTML(
-                                courier.name
-                              )}
-                            </td>
-
-                            <td>
-                              ${done.length}
-                            </td>
-
-                            <td>
-                              ${back.length}
-                            </td>
-
-                            <td>
-                              ${money(fees)}
-                            </td>
-
-                            <td>
-                              <strong>
-                                ${money(
-                                  fees *
-                                  (
-                                    COURIER_PERCENT /
-                                    100
-                                  )
-                                )}
-                              </strong>
-                            </td>
-                          </tr>
-                        `;
-                      })
-                      .join("")}
-                  </tbody>
-                </table>
-              </div>
-            `
-            : `
-              <div class="empty-state">
-                لا توجد بيانات.
-              </div>
-            `
-        }
-      </div>
-    `;
-  }
+  function exportOrdersCsv(){const rows=[["order","status","shop","customer","phone","area","courier","fee","goods","created_at"],...state.orders.map(o=>[orderCode(o),statusLabel(o.status),shopName(o),customerName(o),customerPhone(o),o.delivery_area||"",courierName(o),orderFee(o),orderGoods(o),o.created_at||""])];const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`wasalli-report-${new Date().toISOString().slice(0,10)}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 
   /* =========================================================
-     USERS / APPROVALS
+     USERS / PERMISSIONS
      ========================================================= */
 
-  function renderUsers() {
-    if (!isAdmin()) {
-      state.page = "dashboard";
-      renderPage();
-      return;
-    }
+  function renderUsers(){if(!isAdmin())return goDashboard();setPageTitle("الحسابات والصلاحيات","مراجعة وتفعيل حسابات المستخدمين");const pending=state.profiles.filter(p=>!p.is_active||p.role==="pending"),active=state.profiles.filter(p=>p.is_active&&p.role!=="pending");qs("#content").innerHTML=`<div class="card"><div class="card-header"><div><h2>طلبات التسجيل</h2><p>${pending.length} بانتظار المراجعة</p></div></div>${pending.length?`<div class="entity-grid">${pending.map(p=>profileCard(p,true)).join("")}</div>`:`<div class="empty">لا توجد طلبات معلقة.</div>`}</div><div class="card"><div class="card-header"><div><h2>المستخدمون الفعالون</h2><p>${active.length} حساب</p></div></div><div class="entity-grid">${active.map(p=>profileCard(p,false)).join("")}</div></div>`;bindProfileActions()}
 
-    setTitle(
-      "الحسابات والصلاحيات",
-      "مراجعة الحسابات الجديدة وإدارة المستخدمين"
-    );
+  function profileCard(p,pending){return `<article class="entity-card"><div class="entity-head"><div class="entity-icon">👤</div><div><h3>${escapeHTML(p.full_name||"مستخدم")}</h3><p>${escapeHTML(p.phone||p.email||"—")}</p></div></div><div class="info-grid"><div class="info-box"><small>الدور</small><strong>${escapeHTML(roleLabel(pending?(p.requested_role||p.role):p.role))}</strong></div><div class="info-box"><small>المنطقة</small><strong>${escapeHTML(p.area||"—")}</strong></div></div><div class="actions">${pending?`<button class="success-btn btn-sm" data-approve="${escapeHTML(p.id)}">موافقة</button><button class="danger-btn btn-sm" data-reject="${escapeHTML(p.id)}">رفض</button>`:`<button class="ghost-btn btn-sm" data-edit-profile="${escapeHTML(p.id)}">الصلاحية</button>${p.id!==state.session?.user?.id?`<button class="danger-btn btn-sm" data-suspend="${escapeHTML(p.id)}">تعطيل</button>`:""}`}</div></article>`}
 
-    const profiles =
-      state.profiles || [];
+  function bindProfileActions(){qsa("[data-approve]").forEach(b=>b.addEventListener("click",()=>approveProfile(b.dataset.approve)));qsa("[data-reject]").forEach(b=>b.addEventListener("click",()=>rejectProfile(b.dataset.reject)));qsa("[data-edit-profile]").forEach(b=>b.addEventListener("click",()=>openRoleModal(b.dataset.editProfile)));qsa("[data-suspend]").forEach(b=>b.addEventListener("click",()=>suspendProfile(b.dataset.suspend)))}
 
-    const pending =
-      profiles.filter(
-        profile =>
-          profile.role ===
-            "pending" ||
-          profile.requested_role ||
-          profile.is_active === false
-      );
-
-    const active =
-      profiles.filter(
-        profile =>
-          profile.is_active !== false &&
-          profile.role !== "pending"
-      );
-
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="stats-grid">
-        ${dashboardStat(
-          "⏳",
-          "بانتظار المراجعة",
-          pending.length
-        )}
-
-        ${dashboardStat(
-          "👥",
-          "حسابات فعالة",
-          active.length
-        )}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>
-              طلبات التسجيل
-            </h2>
-
-            <p>
-              الموافقة أو الرفض من الإدارة
-            </p>
-          </div>
-        </div>
-
-        ${
-          pending.length
-            ? `
-              <div class="entity-card-grid">
-                ${pending
-                  .map(
-                    profile => `
-                      <article
-                        class="entity-card"
-                      >
-                        <div
-                          class="entity-card-head"
-                        >
-                          <div
-                            class="entity-avatar"
-                          >
-                            👤
-                          </div>
-
-                          <div>
-                            <h3>
-                              ${escapeHTML(
-                                profile.full_name ||
-                                "مستخدم"
-                              )}
-                            </h3>
-
-                            <p>
-                              ${escapeHTML(
-                                profile.phone ||
-                                profile.email ||
-                                "—"
-                              )}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div
-                          class="entity-info"
-                        >
-                          <div>
-                            <small>
-                              الدور المطلوب
-                            </small>
-
-                            <strong>
-                              ${escapeHTML(
-                                roleLabelSafe(
-                                  profile.requested_role ||
-                                  profile.role
-                                )
-                              )}
-                            </strong>
-                          </div>
-
-                          <div>
-                            <small>
-                              المنطقة
-                            </small>
-
-                            <strong>
-                              ${escapeHTML(
-                                profile.area ||
-                                "—"
-                              )}
-                            </strong>
-                          </div>
-                        </div>
-
-                        <div
-                          class="entity-actions"
-                        >
-                          <button
-                            class="btn btn-primary"
-                            data-approve-profile="${profile.id}"
-                          >
-                            موافقة
-                          </button>
-
-                          <button
-                            class="btn btn-danger"
-                            data-reject-profile="${profile.id}"
-                          >
-                            رفض
-                          </button>
-                        </div>
-                      </article>
-                    `
-                  )
-                  .join("")}
-              </div>
-            `
-            : `
-              <div class="empty-state">
-                لا توجد طلبات تسجيل معلقة.
-              </div>
-            `
-        }
-      </div>
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <div class="card-header">
-          <h2>
-            المستخدمون الفعالون
-          </h2>
-        </div>
-
-        ${
-          active.length
-            ? `
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>الاسم</th>
-                      <th>الهاتف</th>
-                      <th>الدور</th>
-                      <th>الحالة</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    ${active
-                      .map(
-                        profile => `
-                          <tr>
-                            <td>
-                              <strong>
-                                ${escapeHTML(
-                                  profile.full_name ||
-                                  "—"
-                                )}
-                              </strong>
-                            </td>
-
-                            <td>
-                              ${escapeHTML(
-                                profile.phone ||
-                                profile.email ||
-                                "—"
-                              )}
-                            </td>
-
-                            <td>
-                              ${escapeHTML(
-                                roleLabelSafe(
-                                  profile.role
-                                )
-                              )}
-                            </td>
-
-                            <td>
-                              <span
-                                class="wasalli-badge badge-success"
-                              >
-                                فعال
-                              </span>
-                            </td>
-                          </tr>
-                        `
-                      )
-                      .join("")}
-                  </tbody>
-                </table>
-              </div>
-            `
-            : `
-              <div class="empty-state">
-                لا توجد حسابات فعالة.
-              </div>
-            `
-        }
-      </div>
-    `;
-
-    $$("[data-approve-profile]")
-      .forEach(button => {
-        button.onclick = () =>
-          approveProfile(
-            button.dataset
-              .approveProfile
-          );
-      });
-
-    $$("[data-reject-profile]")
-      .forEach(button => {
-        button.onclick = () =>
-          rejectProfile(
-            button.dataset
-              .rejectProfile
-          );
-      });
-  }
-
-  function roleLabelSafe(role) {
-    const labels = {
-      admin: "الإدارة",
-      operations: "العمليات",
-      accountant: "المحاسب",
-      shop: "محل",
-      courier: "مندوب",
-      customer: "زبون",
-      hotel: "فندق",
-      pending: "قيد المراجعة"
-    };
-
-    return (
-      labels[role] ||
-      role ||
-      "قيد المراجعة"
-    );
-  }
-
-  async function approveProfile(
-    profileId
-  ) {
-    if (!isAdmin()) return;
-
-    const profile =
-      state.profiles.find(
-        item =>
-          String(item.id) ===
-          String(profileId)
-      );
-
-    if (!profile) return;
-
-    const role =
-      profile.requested_role &&
-      profile.requested_role !==
-        "pending"
-        ? profile.requested_role
-        : (
-            profile.role !== "pending"
-              ? profile.role
-              : "courier"
-          );
-
-    const confirmed =
-      await confirmAction(
-        `الموافقة على حساب ${profile.full_name || ""} كـ ${roleLabelSafe(role)}؟`,
-        "موافقة"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      let courierId =
-        profile.courier_id ||
-        null;
-
-      let shopId =
-        profile.shop_id ||
-        null;
-
-      if (
-        role === "courier" &&
-        !courierId
-      ) {
-        const {
-          data: courier,
-          error: courierError
-        } =
-          await sb
-            .from("couriers")
-            .insert({
-              user_id:
-                profile.id,
-              name:
-                profile.full_name ||
-                "مندوب",
-              phone:
-                profile.phone ||
-                null,
-              area:
-                profile.area ||
-                null,
-              vehicle_type:
-                profile.vehicle_type ||
-                null,
-              vehicle_number:
-                profile.vehicle_number ||
-                null,
-              emergency_phone:
-                profile.emergency_phone ||
-                null,
-              status:
-                "unavailable",
-              is_available:
-                false,
-              is_on_shift:
-                false,
-              is_active:
-                true,
-              max_active_orders:
-                DEFAULT_MAX_ACTIVE_ORDERS
-            })
-            .select()
-            .single();
-
-        if (courierError) {
-          throw courierError;
-        }
-
-        courierId =
-          courier.id;
-      }
-
-      if (
-        role === "shop" &&
-        !shopId
-      ) {
-        const {
-          data: shop,
-          error: shopError
-        } =
-          await sb
-            .from("shops")
-            .insert({
-              user_id:
-                profile.id,
-              name:
-                profile.full_name ||
-                "محل",
-              phone:
-                profile.phone ||
-                null,
-              area:
-                profile.area ||
-                null,
-              address:
-                profile.address ||
-                null,
-              is_active:
-                true
-            })
-            .select()
-            .single();
-
-        if (shopError) {
-          throw shopError;
-        }
-
-        shopId = shop.id;
-      }
-
-      const { error } =
-        await sb
-          .from("profiles")
-          .update({
-            role,
-            is_active: true,
-            courier_id:
-              courierId,
-            shop_id:
-              shopId,
-            approved_at:
-              new Date()
-                .toISOString(),
-            approved_by:
-              state.session.user.id,
-            suspended_at:
-              null,
-            suspended_by:
-              null,
-            updated_at:
-              new Date()
-                .toISOString()
-          })
-          .eq(
-            "id",
-            profileId
-          );
-
-      if (error) {
-        throw error;
-      }
-
-      await loadAll(false);
-
-      state.page = "users";
-      renderPage();
-
-      toast(
-        "تم اعتماد الحساب."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر اعتماد الحساب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
-
-  async function rejectProfile(
-    profileId
-  ) {
-    if (!isAdmin()) return;
-
-    const reason =
-      window.prompt(
-        "اكتب سبب رفض التسجيل:"
-      );
-
-    if (!reason?.trim()) {
-      toast(
-        "سبب الرفض مطلوب.",
-        "warning"
-      );
-      return;
-    }
-
-    const confirmed =
-      await confirmAction(
-        "هل تريد رفض طلب التسجيل؟",
-        "تأكيد الرفض"
-      );
-
-    if (!confirmed) return;
-
-    try {
-      const { error } =
-        await sb
-          .from("profiles")
-          .update({
-            role: "pending",
-            is_active: false,
-            suspended_at:
-              new Date()
-                .toISOString(),
-            suspended_by:
-              state.session.user.id,
-            updated_at:
-              new Date()
-                .toISOString()
-          })
-          .eq(
-            "id",
-            profileId
-          );
-
-      if (error) {
-        throw error;
-      }
-
-      /*
-        نحاول تسجيل سبب الرفض في
-        registration_requests إذا كان
-        هناك سجل لهذا المستخدم.
-      */
-      try {
-        await sb
-          .from(
-            "registration_requests"
-          )
-          .update({
-            status:
-              "rejected",
-            rejection_reason:
-              reason.trim(),
-            reviewed_by:
-              state.session.user.id,
-            reviewed_at:
-              new Date()
-                .toISOString()
-          })
-          .eq(
-            "user_id",
-            profileId
-          );
-      } catch {
-        // يبقى الحساب مرفوضاً حتى
-        // لو لم يوجد سجل registration_requests
-      }
-
-      await loadAll(false);
-
-      state.page = "users";
-      renderPage();
-
-      toast(
-        "تم رفض طلب التسجيل."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر رفض الحساب: " +
-          error.message,
-        "error"
-      );
-    }
-  }
+  async function approveProfile(id){const p=state.profiles.find(x=>String(x.id)===String(id));if(!p)return;const target=(p.requested_role&&p.requested_role!=="pending")?p.requested_role:(p.role&&p.role!=="pending"?p.role:"courier");try{let courierId=p.courier_id||null,shopId=p.shop_id||null;if(target==="courier"&&!courierId){const r=await resilientInsert("couriers",{user_id:p.id,name:p.full_name||"مندوب",phone:p.phone||null,area:p.area||null,vehicle_type:p.vehicle_type||null,vehicle_number:p.vehicle_number||null,status:"unavailable",is_available:false,is_on_shift:false,is_active:true,max_active_orders:safeNumber(setting("default_max_active_orders",DEFAULTS.maxActiveOrders))},true);if(r.error)throw r.error;courierId=r.data?.id||null}if(target==="shop"&&!shopId){const r=await resilientInsert("shops",{user_id:p.id,name:p.full_name||"محل",phone:p.phone||null,area:p.area||null,address:p.address||null,is_active:true},true);if(r.error)throw r.error;shopId=r.data?.id||null}const r=await resilientUpdate("profiles",{role:target,is_active:true,courier_id:courierId,shop_id:shopId,approved_at:new Date().toISOString(),approved_by:state.session.user.id,suspended_at:null,suspended_by:null,updated_at:new Date().toISOString()},"id",id);if(r.error)throw r.error;await loadProfiles();renderPage();toast("تم اعتماد الحساب.");}catch(e){toast("تعذر اعتماد الحساب: "+(e?.message||"خطأ"),"error")}}
+  async function rejectProfile(id){const reason=window.prompt("سبب رفض التسجيل:");if(!reason?.trim())return;const r=await resilientUpdate("profiles",{role:"pending",is_active:false,suspended_at:new Date().toISOString(),suspended_by:state.session.user.id,updated_at:new Date().toISOString()},"id",id);if(r.error)return toast("تعذر رفض الحساب.","error");try{await state.sb.from("registration_requests").update({status:"rejected",rejection_reason:reason.trim(),reviewed_by:state.session.user.id,reviewed_at:new Date().toISOString()}).eq("user_id",id)}catch{}await loadProfiles();renderPage();toast("تم رفض الحساب.")}
+  function openRoleModal(id){const p=state.profiles.find(x=>String(x.id)===String(id));if(!p)return;openModal(`${modalHeader("تعديل الصلاحية",p.full_name||"")}<div class="field"><label>الدور</label><select id="profileRole">${["admin","operations","accountant","courier","shop"].map(r=>`<option value="${r}" ${p.role===r?"selected":""}>${roleLabel(r)}</option>`).join("")}</select></div><div class="form-actions"><button class="ghost-btn" data-close-modal>إلغاء</button><button id="saveRoleBtn" class="primary-btn">حفظ</button></div>`);qs("#saveRoleBtn")?.addEventListener("click",async()=>{const r=await resilientUpdate("profiles",{role:qs("#profileRole")?.value,is_active:true,updated_at:new Date().toISOString()},"id",id);if(r.error)return toast("تعذر تعديل الصلاحية.","error");closeModal();await loadProfiles();renderPage();toast("تم تعديل الصلاحية.")})}
+  async function suspendProfile(id){const r=await resilientUpdate("profiles",{is_active:false,suspended_at:new Date().toISOString(),suspended_by:state.session.user.id,updated_at:new Date().toISOString()},"id",id);if(r.error)return toast("تعذر تعطيل الحساب.","error");await loadProfiles();renderPage();toast("تم تعطيل الحساب.")}
 
   /* =========================================================
      SETTINGS
      ========================================================= */
 
-  function renderSettings() {
-    setTitle(
-      "الإعدادات",
-      isAdmin()
-        ? "إعدادات نظام وصلّي"
-        : "إعدادات الحساب"
-    );
+  function renderSettings(){setPageTitle("الإعدادات",isAdmin()?"إعدادات نظام وصلّي":"إعدادات الحساب");qs("#content").innerHTML=`<div class="card"><div class="card-header"><div><h2>الحساب</h2><p>${escapeHTML(state.profile?.full_name||"")}</p></div></div><div class="info-grid"><div class="info-box"><small>الاسم</small><strong>${escapeHTML(state.profile?.full_name||"—")}</strong></div><div class="info-box"><small>الدور</small><strong>${escapeHTML(roleLabel(role()))}</strong></div><div class="info-box"><small>الهاتف</small><strong>${escapeHTML(state.profile?.phone||"—")}</strong></div><div class="info-box"><small>البريد</small><strong>${escapeHTML(state.profile?.email||state.session?.user?.email||"—")}</strong></div></div></div>${isAdmin()?`<div class="card"><div class="card-header"><div><h2>إعدادات التشغيل</h2><p>القيم العامة للنظام</p></div></div><div class="form-grid"><div class="field"><label>اسم الشركة</label><input id="settingCompanyName" value="${escapeHTML(setting("company_name",DEFAULTS.appName))}"></div><div class="field"><label>المدينة</label><input id="settingCity" value="${escapeHTML(setting("city",DEFAULTS.city))}"></div><div class="field"><label>أجرة التوصيل الافتراضية</label><input id="settingFee" type="number" min="0" value="${defaultFee()}"></div><div class="field"><label>نسبة المندوب %</label><input id="settingCourierPct" type="number" min="0" max="100" value="${courierPercent()}"></div><div class="field"><label>نسبة وصلّي %</label><input id="settingCompanyPct" type="number" min="0" max="100" value="${companyPercent()}"></div><div class="field"><label>الحد الافتراضي للطلبات النشطة</label><input id="settingMaxOrders" type="number" min="1" value="${safeNumber(setting("default_max_active_orders",DEFAULTS.maxActiveOrders))}"></div></div><div class="form-actions"><button id="saveSettingsBtn" class="primary-btn">حفظ الإعدادات</button></div></div>`:""}<div class="card"><button id="settingsLogout" class="danger-btn" style="width:100%">تسجيل الخروج</button></div>`;qs("#saveSettingsBtn")?.addEventListener("click",saveSystemSettings);qs("#settingsLogout")?.addEventListener("click",logout)}
 
-    const content = $("#content");
-
-    if (!content) return;
-
-    content.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h2>الحساب</h2>
-
-            <p>
-              ${escapeHTML(
-                state.profile?.full_name ||
-                ""
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div class="order-detail-grid">
-          <div class="detail-box">
-            <small>الاسم</small>
-
-            <strong>
-              ${escapeHTML(
-                state.profile?.full_name ||
-                "—"
-              )}
-            </strong>
-          </div>
-
-          <div class="detail-box">
-            <small>الدور</small>
-
-            <strong>
-              ${escapeHTML(
-                roleLabelSafe(
-                  state.profile?.role
-                )
-              )}
-            </strong>
-          </div>
-
-          <div class="detail-box">
-            <small>الهاتف</small>
-
-            <strong>
-              ${escapeHTML(
-                state.profile?.phone ||
-                "—"
-              )}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      ${
-        isAdmin()
-          ? `
-            <div
-              class="card"
-              style="margin-top:15px"
-            >
-              <div class="card-header">
-                <div>
-                  <h2>
-                    إعدادات التشغيل
-                  </h2>
-
-                  <p>
-                    القيم العامة للنظام
-                  </p>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div class="field">
-                  <label>
-                    اسم الشركة
-                  </label>
-
-                  <input
-                    id="settingCompanyName"
-                    value="${escapeHTML(
-                      state.settings
-                        ?.company_name ||
-                      APP_NAME ||
-                      "وصلّي"
-                    )}"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>
-                    المدينة
-                  </label>
-
-                  <input
-                    id="settingCity"
-                    value="${escapeHTML(
-                      state.settings
-                        ?.city ||
-                      CITY
-                    )}"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>
-                    أجرة التوصيل الافتراضية
-                  </label>
-
-                  <input
-                    id="settingDefaultFee"
-                    type="number"
-                    min="0"
-                    value="${safeNumber(
-                      state.settings
-                        ?.default_delivery_fee ||
-                      DEFAULT_DELIVERY_FEE
-                    )}"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>
-                    نسبة المندوب %
-                  </label>
-
-                  <input
-                    id="settingCourierPercent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value="${COURIER_PERCENT}"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>
-                    نسبة وصلّي %
-                  </label>
-
-                  <input
-                    id="settingCompanyPercent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value="${COMPANY_PERCENT}"
-                  />
-                </div>
-
-                <div class="field">
-                  <label>
-                    الحد الافتراضي للطلبات النشطة
-                  </label>
-
-                  <input
-                    id="settingMaxOrders"
-                    type="number"
-                    min="1"
-                    max="20"
-                    value="${DEFAULT_MAX_ACTIVE_ORDERS}"
-                  />
-                </div>
-              </div>
-
-              <div class="form-actions">
-                <button
-                  class="btn btn-primary"
-                  id="saveSettingsBtn"
-                >
-                  حفظ الإعدادات
-                </button>
-              </div>
-            </div>
-          `
-          : ""
-      }
-
-      <div
-        class="card"
-        style="margin-top:15px"
-      >
-        <button
-          id="settingsLogoutBtn"
-          class="btn btn-danger"
-          style="width:100%"
-        >
-          تسجيل الخروج
-        </button>
-      </div>
-    `;
-
-    $("#saveSettingsBtn")
-      ?.addEventListener(
-        "click",
-        saveSystemSettings
-      );
-
-    $("#settingsLogoutBtn")
-      ?.addEventListener(
-        "click",
-        logout
-      );
-  }
-
-  async function saveSystemSettings() {
-    if (!isAdmin()) return;
-
-    const courierPct =
-      safeNumber(
-        $("#settingCourierPercent")
-          ?.value
-      );
-
-    const companyPct =
-      safeNumber(
-        $("#settingCompanyPercent")
-          ?.value
-      );
-
-    if (
-      courierPct +
-        companyPct !==
-      100
-    ) {
-      toast(
-        "نسبة المندوب + نسبة وصلّي يجب أن تساوي 100%.",
-        "warning"
-      );
-      return;
-    }
-
-    const settings = [
-      {
-        key:
-          "company_name",
-        value:
-          $("#settingCompanyName")
-            ?.value?.trim() ||
-          "وصلّي"
-      },
-      {
-        key:
-          "city",
-        value:
-          $("#settingCity")
-            ?.value?.trim() ||
-          CITY
-      },
-      {
-        key:
-          "default_delivery_fee",
-        value:
-          safeNumber(
-            $("#settingDefaultFee")
-              ?.value
-          )
-      },
-      {
-        key:
-          "courier_percent",
-        value:
-          courierPct
-      },
-      {
-        key:
-          "company_percent",
-        value:
-          companyPct
-      },
-      {
-        key:
-          "default_max_active_orders",
-        value:
-          Math.max(
-            1,
-            safeNumber(
-              $("#settingMaxOrders")
-                ?.value
-            )
-          )
-      }
-    ];
-
-    try {
-      for (
-        const setting of settings
-      ) {
-        const { error } =
-          await sb
-            .from("app_settings")
-            .upsert(
-              {
-                key:
-                  setting.key,
-                value:
-                  setting.value,
-                updated_at:
-                  new Date()
-                    .toISOString()
-              },
-              {
-                onConflict: "key"
-              }
-            );
-
-        if (error) {
-          throw error;
-        }
-      }
-
-      await loadAll(false);
-
-      state.page = "settings";
-      renderPage();
-
-      toast(
-        "تم حفظ الإعدادات."
-      );
-    } catch (error) {
-      console.error(error);
-
-      toast(
-        "تعذر حفظ الإعدادات: " +
-          error.message,
-        "error"
-      );
-    }
-  }
+  async function saveSettingsRows(rows){for(const item of rows){const {error}=await state.sb.from("app_settings").upsert({key:item.key,value:item.value,updated_at:new Date().toISOString()},{onConflict:"key"});if(error)throw error}}
+  async function saveSystemSettings(){const btn=qs("#saveSettingsBtn"),cp=safeNumber(qs("#settingCourierPct")?.value),wp=safeNumber(qs("#settingCompanyPct")?.value);if(cp+wp!==100)return toast("نسبة المندوب + نسبة وصلّي يجب أن تساوي 100%.","warning");setBusy(btn,true,"جاري الحفظ...");try{await saveSettingsRows([{key:"company_name",value:qs("#settingCompanyName")?.value?.trim()||DEFAULTS.appName},{key:"city",value:qs("#settingCity")?.value?.trim()||DEFAULTS.city},{key:"default_delivery_fee",value:safeNumber(qs("#settingFee")?.value)},{key:"courier_percent",value:cp},{key:"company_percent",value:wp},{key:"default_max_active_orders",value:Math.max(1,safeNumber(qs("#settingMaxOrders")?.value,DEFAULTS.maxActiveOrders))}]);await loadSettings();renderPage();toast("تم حفظ الإعدادات.");}catch(e){toast("تعذر حفظ الإعدادات: "+(e?.message||"خطأ"),"error");}finally{setBusy(btn,false)}}
 
   /* =========================================================
-     NOTIFICATIONS
+     COURIER OPERATIONS / OFFERS
      ========================================================= */
 
-  async function loadNotificationCount() {
-    const badge =
-      $("#notificationBadge");
+  async function setCourierShift(on){if(!state.currentCourier)return toast("ملف المندوب غير مرتبط بالحساب.","error");const payload={is_on_shift:on,is_available:on,status:on?"available":"offline",updated_at:new Date().toISOString()};const r=await resilientUpdate("couriers",payload,"id",state.currentCourier.id);if(r.error)return toast("تعذر تغيير الدوام.","error");await loadCurrentCourier();await loadOffers();renderPage();toast(on?"تم بدء الدوام.":"تم إنهاء الدوام.")}
+  async function setCourierAvailability(on){if(!state.currentCourier)return;const r=await resilientUpdate("couriers",{is_available:on,status:on?"available":"unavailable",updated_at:new Date().toISOString()},"id",state.currentCourier.id);if(r.error)return toast("تعذر تغيير التوفر.","error");await loadCurrentCourier();await loadOffers();renderPage();toast(on?"أصبحت متاحاً لاستقبال الطلبات.":"تم إيقاف استقبال الطلبات.")}
 
-    if (!badge) return;
+  function renderOfferCard(offer){const o=state.orders.find(x=>String(x.id)===String(offer.order_id));return `<article class="offer-card"><div class="card-header"><div><h3 style="margin:0">عرض توصيل</h3><p>${dateTime(offer.offered_at)}</p></div><span class="badge badge-info">جديد</span></div><div class="route"><strong>${escapeHTML(o?.pickup_area||shopName(o)||"منطقة الاستلام")}</strong><span>←</span><strong>${escapeHTML(o?.delivery_area||"منطقة التوصيل")}</strong></div><div class="info-grid"><div class="info-box"><small>أجرة التوصيل</small><strong>${money(o?orderFee(o):defaultFee())}</strong></div><div class="info-box"><small>حصة المندوب</small><strong>${money((o?orderFee(o):defaultFee())*courierPercent()/100)}</strong></div></div><div class="actions"><button class="success-btn" data-accept-offer="${escapeHTML(offer.id)}">قبول</button><button class="danger-btn" data-reject-offer="${escapeHTML(offer.id)}">رفض</button></div></article>`}
+  function bindOfferActions(){qsa("[data-accept-offer]").forEach(b=>b.addEventListener("click",()=>acceptOffer(b.dataset.acceptOffer)));qsa("[data-reject-offer]").forEach(b=>b.addEventListener("click",()=>rejectOfferPrompt(b.dataset.rejectOffer)))}
+  async function acceptOffer(id){try{const {error}=await state.sb.rpc("wasalli_accept_offer",{p_offer_id:id});if(error)throw error;await loadOrders();await loadOffers();renderPage();toast("تم قبول الطلب.");}catch(e){toast(e?.message||"تعذر قبول العرض.","error")}}
+  async function rejectOfferPrompt(id){const reason=window.prompt("سبب الرفض: بعيد / مشغول / عطل / سبب آخر");if(!reason)return;try{const {error}=await state.sb.rpc("wasalli_reject_offer",{p_offer_id:id,p_reason:"other",p_note:reason});if(error)throw error;await loadOffers();renderPage();toast("تم رفض العرض.");}catch(e){toast(e?.message||"تعذر رفض العرض.","error")}}
 
-    if (!isAdminOrOperations()) {
-      badge.classList.add(
-        "hidden"
-      );
-      return;
-    }
-
-    try {
-      const { data, error } =
-        await sb
-          .from("notifications")
-          .select("*")
-          .order(
-            "created_at",
-            {
-              ascending: false
-            }
-          )
-          .limit(50);
-
-      if (error) {
-        throw error;
-      }
-
-      state.notifications =
-        data || [];
-
-      const unread =
-        state.notifications.filter(
-          item =>
-            !item.is_read
-        ).length;
-
-      badge.textContent =
-        unread;
-
-      badge.classList.toggle(
-        "hidden",
-        unread === 0
-      );
-    } catch (error) {
-      console.warn(error);
-
-      badge.classList.add(
-        "hidden"
-      );
-    }
-  }
-
-  async function openNotifications() {
-    if (!isAdminOrOperations()) {
-      toast(
-        "الإشعارات التشغيلية للإدارة والعمليات.",
-        "warning"
-      );
-      return;
-    }
-
-    await loadNotificationCount();
-
-    openModal(`
-      <div class="modal-heading">
-        <div>
-          <h2>الإشعارات</h2>
-
-          <p>
-            آخر إشعارات التشغيل
-          </p>
-        </div>
-
-        <button
-          class="icon-btn"
-          data-close
-        >
-          ×
-        </button>
-      </div>
-
-      ${
-        state.notifications
-          ?.length
-          ? `
-            <div class="simple-list">
-              ${state.notifications
-                .map(
-                  item => `
-                    <div
-                      class="simple-list-item ${
-                        !item.is_read
-                          ? "notification-unread"
-                          : ""
-                      }"
-                    >
-                      <div>
-                        <strong>
-                          ${escapeHTML(
-                            item.title ||
-                            "إشعار"
-                          )}
-                        </strong>
-
-                        <span>
-                          ${escapeHTML(
-                            item.message ||
-                            ""
-                          )}
-                        </span>
-                      </div>
-
-                      <small>
-                        ${dateTime(
-                          item.created_at
-                        )}
-                      </small>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-          : `
-            <div class="empty-state">
-              لا توجد إشعارات.
-            </div>
-          `
-      }
-    `);
-
-    try {
-      const unreadIds =
-        (state.notifications || [])
-          .filter(
-            item =>
-              !item.is_read
-          )
-          .map(
-            item => item.id
-          );
-
-      if (unreadIds.length) {
-        await sb
-          .from("notifications")
-          .update({
-            is_read: true
-          })
-          .in(
-            "id",
-            unreadIds
-          );
-
-        await loadNotificationCount();
-      }
-    } catch (error) {
-      console.warn(error);
-    }
-  }
+  function renderCourierOrderCard(o){const next=o.status==="assigned"?"accepted":o.status==="accepted"?"picked_up":o.status==="picked_up"?"on_the_way":o.status==="on_the_way"?"delivered":null;const nextLabel={accepted:"قبول الطلب",picked_up:"تم الاستلام من المحل",on_the_way:"انطلقت للزبون",delivered:"تم التسليم"}[next];return `<article class="entity-card"><div class="card-header"><div><h3 style="margin:0">${escapeHTML(orderCode(o))}</h3><p>${escapeHTML(shopName(o))}</p></div>${statusBadge(o.status)}</div><div class="info-grid"><div class="info-box"><small>الزبون</small><strong>${escapeHTML(customerName(o))}</strong></div><div class="info-box"><small>الهاتف</small><strong>${escapeHTML(customerPhone(o)||"—")}</strong></div><div class="info-box"><small>المنطقة</small><strong>${escapeHTML(o.delivery_area||"—")}</strong></div><div class="info-box"><small>التحصيل</small><strong>${money(amountToCollect(o))}</strong></div></div><div class="actions">${next?`<button class="primary-btn btn-sm" data-courier-next="${escapeHTML(o.id)}" data-status="${next}">${escapeHTML(nextLabel)}</button>`:""}<button class="ghost-btn btn-sm" data-open-order="${escapeHTML(o.id)}">التفاصيل</button>${!CLOSED_STATUSES.includes(o.status)?`<button class="danger-btn btn-sm" data-courier-return="${escapeHTML(o.id)}">راجع</button>`:""}</div></article>`}
+  function bindCourierOrderActions(){qsa("[data-courier-next]").forEach(b=>b.addEventListener("click",()=>courierUpdateStatus(b.dataset.courierNext,b.dataset.status)));qsa("[data-courier-return]").forEach(b=>b.addEventListener("click",()=>courierReturnOrder(b.dataset.courierReturn)))}
+  async function courierUpdateStatus(id,status){const now=new Date().toISOString(),payload={status,updated_at:now};if(status==="accepted")payload.accepted_at=now;if(status==="picked_up")payload.picked_up_at=now;if(status==="on_the_way")payload.on_the_way_at=now;if(status==="delivered")payload.delivered_at=now;const r=await resilientUpdate("orders",payload,"id",id);if(r.error)return toast("تعذر تحديث الطلب.","error");await loadOrders();renderPage();toast("تم تحديث حالة الطلب.")}
+  async function courierReturnOrder(id){const reason=window.prompt("سبب الراجع:");if(!reason)return;const r=await resilientUpdate("orders",{status:"returned",return_reason:reason,returned_at:new Date().toISOString(),updated_at:new Date().toISOString()},"id",id);if(r.error)return toast("تعذر تسجيل الراجع.","error");await loadOrders();renderPage();toast("تم تسجيل الطلب راجع.")}
 
   /* =========================================================
-     FINAL PAGE ROUTER
+     NOTIFICATIONS / REALTIME / DISPATCH
      ========================================================= */
 
-  function renderPage() {
-    if (!state.profile || !isActiveProfile()) return;
+  function updateNotificationBadge(){const b=qs("#notificationBadge");if(!b)return;const n=state.notifications.filter(x=>!x.is_read).length;b.textContent=n>99?"99+":String(n);b.classList.toggle("hidden",n===0)}
+  function openNotifications(){openModal(`${modalHeader("الإشعارات","آخر إشعارات النظام")}${state.notifications.length?`<div class="entity-grid">${state.notifications.map(n=>`<div class="entity-card"><strong>${escapeHTML(n.title||"إشعار")}</strong><p>${escapeHTML(n.message||"")}</p><small class="muted">${dateTime(n.created_at)}</small></div>`).join("")}</div>`:`<div class="empty">لا توجد إشعارات.</div>`}`);const ids=state.notifications.filter(n=>!n.is_read).map(n=>n.id);if(ids.length)state.sb.from("notifications").update({is_read:true}).in("id",ids).then(()=>{state.notifications.forEach(n=>n.is_read=true);updateNotificationBadge()})}
 
-    renderNavigation();
+  const realtimeRefresh = debounce(async()=>{if(!state.session)return;await loadAll(false);renderPage()},450);
+  function startRealtime(){stopRealtime();if(!state.session)return;try{let ch=state.sb.channel(`wasalli-live-${state.session.user.id}`);["orders","shops","couriers","notifications","order_offers"].forEach(table=>{ch=ch.on("postgres_changes",{event:"*",schema:"public",table},realtimeRefresh)});state.realtime=ch.subscribe();}catch(e){console.warn("[Wasalli realtime]",e)}}
+  function stopRealtime(){if(state.realtime){try{state.sb?.removeChannel?.(state.realtime)}catch{}state.realtime=null}}
+  function startDispatchTimer(){stopDispatchTimer();const tick=async()=>{if(!isAdminOrOperations())return;try{await Promise.all([state.sb.rpc("wasalli_expand_dispatch"),state.sb.rpc("wasalli_check_late_orders")])}catch{}};tick();state.dispatchTimer=setInterval(tick,15000)}
+  function stopDispatchTimer(){if(state.dispatchTimer)clearInterval(state.dispatchTimer);state.dispatchTimer=null}
 
-    switch (state.page) {
-      case "dashboard": renderDashboard(); break;
-      case "orders": renderOrders(); break;
-      case "shops": renderShops(); break;
-      case "couriers": renderCouriers(); break;
-      case "map": renderMap(); break;
-      case "pricing": renderPricing(); break;
-      case "accounts": renderAccounts(); break;
-      case "reports": renderReports(); break;
-      case "users": renderUsers(); break;
-      case "settings": renderSettings(); break;
-      default:
-        state.page = "dashboard";
-        renderDashboard();
-        break;
-    }
-  }
-
-  /* =========================================================
-     FINAL STATIC EVENTS
-     ========================================================= */
-
-  function bindStaticEvents() {
-    $("#loginForm")
-      ?.addEventListener(
-        "submit",
-        login
-      );
-
-    $("#signupForm")
-      ?.addEventListener(
-        "submit",
-        signup
-      );
-
-    $("#signupType")
-      ?.addEventListener(
-        "change",
-        toggleSignupFields
-      );
-    
-    $("#pendingLogout")
-      ?.addEventListener(
-        "click",
-        logout
-      );
-
-    $("#logoutBtn")
-      ?.addEventListener(
-        "click",
-        logout
-      );
-
-    $("#menuToggle")
-      ?.addEventListener(
-        "click",
-        openSidebar
-      );
-
-    $("#sidebarBackdrop")
-      ?.addEventListener(
-        "click",
-        closeSidebar
-      );
-
-    $("#refreshBtn")
-      ?.addEventListener(
-        "click",
-        async () => {
-          await loadAll(true);
-          renderPage();
-        }
-      );
-
-    $("#notificationBtn")
-      ?.addEventListener(
-        "click",
-        openNotifications
-      );
-
-    $$(".auth-tab")
-      .forEach(button => {
-        button.addEventListener(
-          "click",
-          () => {
-            $$(".auth-tab")
-              .forEach(tab =>
-                tab.classList.remove(
-                  "active"
-                )
-              );
-
-            button.classList.add(
-              "active"
-            );
-
-            const loginMode =
-              button.dataset
-                .authTab ===
-              "login";
-
-            $("#loginForm")
-              ?.classList.toggle(
-                "hidden",
-                !loginMode
-              );
-
-            $("#signupForm")
-              ?.classList.toggle(
-                "hidden",
-                loginMode
-              );
-
-            if (
-              $("#authMessage")
-            ) {
-              $("#authMessage")
-                .textContent = "";
-            }
-          }
-        );
-      });
-
-    window.addEventListener(
-      "resize",
-      () => {
-        if (
-          window.innerWidth >
-          900
-        ) {
-          closeSidebar();
-        }
-
-        state.map
-          ?.invalidateSize?.();
-      }
-    );
-  }
+  function goDashboard(){state.page="dashboard";renderPage()}
 
   /* =========================================================
      BOOT
      ========================================================= */
 
-  async function boot() {
-    bindStaticEvents();
+  async function waitForSupabase(timeoutMs = 15000) {
+    if (!window.supabase?.createClient) {
+      const existing = document.querySelector('script[data-wasalli-supabase]');
+      if (!existing) {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+        script.async = true;
+        script.dataset.wasalliSupabase = "1";
+        document.head.appendChild(script);
+      }
+    }
 
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (window.supabase?.createClient) return window.supabase;
+      await new Promise(r => setTimeout(r, 60));
+    }
+    throw new Error("تعذر تحميل مكتبة Supabase.");
+  }
+
+  async function init() {
     try {
-      if (
-        typeof populateSignupAreas ===
-        "function"
-      ) {
-        populateSignupAreas();
-      }
+      const lib = await waitForSupabase();
+      state.sb = lib.createClient(SUPABASE_URL, SUPABASE_KEY);
+      buildUI();
+      toggleSignupFields();
 
-      const {
-        data: { session }
-      } =
-        await sb.auth.getSession();
-
-      if (session) {
-        await enterSession(
-          session
-        );
-      } else {
-        showAuth();
-      }
-
-      sb.auth.onAuthStateChange(
-        (event, session) => {
-
-          if (
-            event ===
-            "SIGNED_OUT"
-          ) {
-            stopRealtime?.();
-
-            state.session = null;
-            state.profile = null;
-            state.currentCourier =
-              null;
-            state.orderOffers = [];
-
-            showAuth();
-          }
-
-          if (
-            event ===
-              "SIGNED_IN" &&
-            session &&
-            !state.session
-          ) {
-            enterSession(
-              session
-            );
-          }
+      state.sb.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+          resetState();
+          showAuth();
         }
-      );
+        if (event === "USER_UPDATED" && session && state.session?.user?.id === session.user.id) {
+          state.session = session;
+        }
+      });
+
+      const { data, error } = await state.sb.auth.getSession();
+      if (error) throw error;
+      if (data?.session) await activateSession(data.session);
+      else showAuth();
     } catch (error) {
-      console.error(error);
-
-      showAuth();
-
-      toast(
-        "حدث خطأ أثناء تشغيل النظام.",
-        "error"
-      );
+      console.error("[Wasalli boot]", error);
+      document.body.innerHTML = `<div dir="rtl" style="font-family:Arial;padding:30px;text-align:center"><h2>تعذر تشغيل وصلّي</h2><p>${escapeHTML(error?.message || "خطأ غير معروف")}</p></div>`;
     }
   }
-  boot();
 
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
+  else init();
 })();
