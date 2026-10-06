@@ -12382,6 +12382,8 @@ startRealtime();
 
       sb.auth.onAuthStateChange(
         (event, session) => {
+          console.log("AUTH EVENT:", event, "SESSION:", !!session);
+          
           if (
             event ===
             "SIGNED_OUT"
