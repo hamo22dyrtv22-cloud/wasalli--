@@ -12201,7 +12201,6 @@
      ========================================================= */
 
   function renderPage() {
-    buildNav();
 
     switch (state.page) {
       case "orders":
