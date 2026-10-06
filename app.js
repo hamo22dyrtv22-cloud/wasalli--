@@ -1228,35 +1228,45 @@
 
   await enterSession(data.session);
 }
-  async function legacyEmailLogin() {
-    const email =
-      prompt("اكتب البريد الإلكتروني:");
+async function legacyEmailLogin() {
+  const email =
+    $("#loginEmail")?.value?.trim() || "";
 
-    if (!email) return;
+  const password =
+    $("#loginPassword")?.value || "";
 
-    const password =
-      prompt("اكتب كلمة المرور:");
-
-    if (!password) return;
-
-    const { data, error } =
-      await sb.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
-
-    if (error) {
-      toast(
-        "تعذر تسجيل الدخول: " +
-          error.message,
-        "error"
-      );
-
-      return;
-    }
-
-    await enterSession(data.session);
+  if (!email || !password) {
+    setAuthMessage(
+      "اكتب البريد الإلكتروني وكلمة المرور في خانات تسجيل الدخول."
+    );
+    return;
   }
+
+  setAuthMessage("جاري تسجيل الدخول...");
+
+  const { data, error } =
+    await sb.auth.signInWithPassword({
+      email: email.toLowerCase(),
+      password
+    });
+
+  if (error) {
+    console.error("Legacy login error:", error);
+
+    setAuthMessage(
+      "تعذر تسجيل الدخول. تأكد من البريد الإلكتروني وكلمة المرور."
+    );
+    return;
+  }
+
+  if (!data?.session) {
+    setAuthMessage("تعذر إنشاء جلسة تسجيل الدخول.");
+    return;
+  }
+
+  setAuthMessage("");
+  await enterSession(data.session);
+}
 
   function setAuthMessage(message) {
     const el = $("#authMessage");
